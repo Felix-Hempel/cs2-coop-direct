@@ -186,10 +186,11 @@ namespace SkylineTogether.Session
 
         /// <summary>
         /// Fork: host and join over <see cref="DirectTransport"/> only, without any Steam call (the setting
-        /// <see cref="SkylineTogetherSettings.DirectOnly"/>). Every Steam use of this class sits behind it, in methods of
-        /// their own that are never compiled on the direct path (<see cref="SteamFacade"/>, <see cref="NewSteamTransport"/>).
+        /// <see cref="SkylineTogetherSettings.DirectOnly"/>, frozen at load as <see cref="Mod.DirectOnlyAtStart"/>: changing it
+        /// takes effect after a game restart). Every Steam use of this class sits behind it, in methods of their own that
+        /// are never compiled on the direct path (<see cref="SteamFacade"/>, <see cref="NewSteamTransport"/>).
         /// </summary>
-        public bool DirectOnly => _settings.DirectOnly;
+        public bool DirectOnly => Mod.DirectOnlyAtStart;
 
         public bool CanHost => !InSession && (DirectOnly || SteamAvailable) && BlockingFeature() == null && GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game && !GameManager.instance.isGameLoading;
 
@@ -229,7 +230,7 @@ namespace SkylineTogether.Session
         {
             get
             {
-                if (Mod.Settings != null && Mod.Settings.DirectOnly) return false;
+                if (Mod.DirectOnlyAtStart) return false;
                 double now = SteamClock.Elapsed.TotalSeconds;
                 if (now - _steamCheckedAt < 1.0) return _steamAvailable;
                 _steamCheckedAt = now;

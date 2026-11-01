@@ -50,7 +50,7 @@ namespace SkylineTogether.Settings
         /// <summary>
         /// Fork: host and join over plain TCP (<c>DirectTransport</c>, e.g. in a Tailscale network) without any Steam call:
         /// no Steam ID, persona, relay network, lobby, invites or friends list, and the Steam self-tests are skipped. A
-        /// session password is required to host. Read at start (Steam relay, invites): restart the game after changing it.
+        /// session password is required to host. Read once at load (<c>Mod.DirectOnlyAtStart</c>: Steam relay, invites, self-test): takes effect after a game restart.
         /// </summary>
         [SettingsUISection(MainSection, PlayerGroup)]
         public bool DirectOnly { get; set; }

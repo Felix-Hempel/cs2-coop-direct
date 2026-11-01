@@ -111,7 +111,7 @@ namespace SkylineTogether.UI
             AddUpdateBinding(_stateBinding);
             AddUpdateBinding(new GetterValueBinding<string>(Group, "join", () => Guard.GetRetrying(Features.Ui, "join progress", _buildJoin, _join, ref _joinRetry)));
             // fork: direct mode (no Steam): the panel hides the Steam ID, invites and "friends only", and asks for IP:port
-            AddUpdateBinding(new GetterValueBinding<bool>(Group, "directOnly", () => Mod.Settings != null && Mod.Settings.DirectOnly));
+            AddUpdateBinding(new GetterValueBinding<bool>(Group, "directOnly", () => Mod.DirectOnlyAtStart));
             AddBinding(new TriggerBinding(Group, "host", () => Trigger("host", () => Mod.Sessions?.StartHosting())));
             AddBinding(new TriggerBinding<string, string>(Group, "join", (target, password) => Trigger("join", () =>
             {

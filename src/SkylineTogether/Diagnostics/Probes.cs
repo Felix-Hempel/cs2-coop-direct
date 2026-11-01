@@ -360,7 +360,7 @@ namespace SkylineTogether.Diagnostics
             ProbeTypeNames("P-PREVIEW", Features.Previews, Presence.ToolPreviewCapture.TypeNames, systems: false);
             Safe("P-PREVIEW-CODEC", Features.Previews, "tool preview encode/decode round trip", ProbePreviewCodec);
             // fork: direct mode never calls Steam; the loopback self-test of the direct transport takes the Steam probes' place
-            if (Mod.Settings == null || Mod.Settings.DirectOnly) ProbeDirect(log);
+            if (Mod.DirectOnlyAtStart) ProbeDirect(log);
             else ProbeSteam();
             if (world) ProbeWorld();
             // types looked up by name elsewhere (FamilyClassifier.FindType) that were missing when used

@@ -319,7 +319,7 @@
   "st.options.ShowBuildingPreviews.label": "Show other players' building previews",
   "st.options.ShowBuildingPreviews.desc": "While another player builds, draw what they see in their colour: the road or track being drawn, the building at their cursor, districts, zones being painted, lines, and what their bulldozer would remove.",
   "st.options.DirectOnly.label": "Direct mode (no Steam)",
-  "st.options.DirectOnly.desc": "Host and join over a direct TCP connection (for example in a Tailscale network) without Steam: no Steam ID, invites or friends list. Hosting needs a session password; players join with the host's IP address and port. Restart the game after changing this.",
+  "st.options.DirectOnly.desc": "Host and join over a direct TCP connection (for example in a Tailscale network) without Steam: no Steam ID, invites or friends list. Hosting needs a session password; players join with the host's IP address and port. Takes effect after restarting the game.",
   "st.options.SessionName.label": "Session name",
   "st.options.SessionName.desc": "Shown to players who join. If left empty, \"<your name>'s city\" is used.",
   "st.options.HostPassword.label": "Password",

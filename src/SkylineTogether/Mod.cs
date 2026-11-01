@@ -69,6 +69,13 @@ namespace SkylineTogether
 
         private static GameObject _driver;
 
+        /// <summary>
+        /// Fork: <see cref="SkylineTogetherSettings.DirectOnly"/> as read once in <see cref="OnLoad"/> (true before that and
+        /// when the settings did not load). Every reader uses this value, never the live setting: the Steam relay, the
+        /// invites and the self-test are chosen at load, so a change in the options takes effect after a game restart.
+        /// </summary>
+        public static bool DirectOnlyAtStart { get; private set; } = true;
+
         public void OnLoad(UpdateSystem updateSystem)
         {
             // The first launch must never crash the game or break single player: every step is isolated, nothing is
@@ -95,6 +102,7 @@ namespace SkylineTogether
             });
             // fork: direct mode never calls Steam (the player's copy answers Steam calls with bogus results)
             bool directOnly = Settings == null || Settings.DirectOnly;
+            DirectOnlyAtStart = directOnly;
             if (directOnly) log.Info(LogCategory.Session, "direct mode: Steam is not used (no relay network, invites, friends or Steam self-tests)");
             else Step(log, "Steam relay network", () => InitSteamRelay(log));
             // the self-test (ARCHITECTURE.md#feature-health-and-guards): types, private members, Steam; features whose probe fails stay off

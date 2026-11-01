@@ -101,7 +101,11 @@ namespace SkylineTogether.Core.Tests.Diagnostics
             if (string.IsNullOrEmpty(profile)) throw new SkipException("no profile folder on this machine");
             string redacted = PathRedactor.Redact(System.IO.Path.Combine(profile, "file.txt"));
             Assert.DoesNotContain(profile, redacted);
-            Assert.Contains(PathRedactor.UserProfileToken, redacted);
+            // off Windows the redactor only knows the user name, so the placeholder is the name token
+            string expected = System.Environment.OSVersion.Platform == System.PlatformID.Win32NT
+                ? PathRedactor.UserProfileToken
+                : "%USERNAME%";
+            Assert.Contains(expected, redacted);
         }
 
         [Test]

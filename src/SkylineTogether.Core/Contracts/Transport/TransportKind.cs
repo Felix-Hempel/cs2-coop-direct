@@ -16,6 +16,8 @@ namespace SkylineTogether.Core
         /// <summary>LAN UDP without Steam (milestone M9).</summary>
         Udp,
         /// <summary>Solo testing: a recorded session played back into a client (no network, ARCHITECTURE.md#solo-test-record-and-replay).</summary>
-        Playback
+        Playback,
+        /// <summary>TCP direct IP without Steam (fork).</summary>
+        Direct
     }
 }

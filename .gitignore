@@ -11,3 +11,6 @@ dist/
 
 # Python bytecode (the release tools import tools/release_common.py)
 __pycache__/
+
+# local agent workspace
+.superpowers/

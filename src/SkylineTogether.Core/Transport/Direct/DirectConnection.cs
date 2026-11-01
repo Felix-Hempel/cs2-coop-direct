@@ -16,14 +16,18 @@ namespace SkylineTogether.Core.Transport.Direct
     /// <para>
     /// Send answers <see cref="SendResult.Busy"/> while the queued reliable bytes plus the message exceed the send buffer
     /// (<see cref="OutboxConfig.SendBufferBytes"/>), drops unreliable messages (answering <see cref="SendResult.Ok"/>)
-    /// while more than 256 KiB are queued, and refuses anything above <see cref="Limits.MaxMessageBytes"/>. Before the
-    /// host admits the peer (<see cref="IAdmissionAware"/>) a frame may carry at most 64 KiB and the inbox holds at most
-    /// 1 MiB; afterwards <see cref="Limits.MaxMessageBytes"/> and 32 MiB (the receive buffer the game gives a Steam
-    /// connection). A full inbox stops the reader, so TCP pushes back on the sender.
+    /// while more than 256 KiB are queued, and refuses anything above <see cref="Limits.MaxMessageBytes"/>; a received
+    /// frame above it ends the connection before anything is allocated (as Steam's cap, also before admission: the
+    /// joiner's manifest arrives in fragments of up to 480 KiB before the host admits it). Admission
+    /// (<see cref="IAdmissionAware"/>) moves the connection from the listener's pending to its admitted count and raises
+    /// the inbox from 1 MiB to 32 MiB (the receive buffers Steam gives a stranger and a player). A full inbox stops the
+    /// reader, so TCP pushes back on the sender.
     /// </para>
     /// <para>
-    /// The keepalive pings every second; when no byte arrives for the connected timeout (<see cref="IConnectionTimeouts"/>,
-    /// default <see cref="ConnectionTimeouts.NormalMilliseconds"/>) the connection ends with "timeout". The writer checks
+    /// A peer must send its preamble within <see cref="DirectTransport.PreambleDeadlineMilliseconds"/> of the socket
+    /// connecting (5 s), so silent strangers give their pending slot back. After the handshake the keepalive pings every
+    /// second; when no byte arrives for the connected timeout (<see cref="IConnectionTimeouts"/>, default
+    /// <see cref="ConnectionTimeouts.NormalMilliseconds"/>) the connection ends with "timeout". The writer checks
     /// it, and so does every poll of the transport (a writer stuck on a dead link cannot). Thread-safe: every field below
     /// is guarded by <c>_sync</c> unless marked otherwise. Lock order: connection, then transport.
     /// </para>
@@ -66,6 +70,9 @@ namespace SkylineTogether.Core.Transport.Direct
         private volatile bool _admitted;
         private volatile bool _suppressPongs;
         private bool _connectedReported;
+        private bool _handshakeDone;            // the peer's preamble arrived: the keepalive timeout applies from now on
+        private long _preambleSince;            // when the socket was connected (0 while connecting); the preamble deadline counts from it
+        private readonly long _preambleDeadlineTicks;
         private bool _notifyPeer;               // ended by a protocol violation: the writer still sends the close frame
         private int _closeReason;
         private string _closeText;
@@ -83,6 +90,7 @@ namespace SkylineTogether.Core.Transport.Direct
         private int _pingMs;
         private long _lastReceive;              // Interlocked
         private long _largestAllocation;        // Interlocked
+        private long _pongs;                    // Interlocked
 
         // writer-thread state
         private readonly byte[] _out = new byte[IoBufferBytes];
@@ -103,6 +111,8 @@ namespace SkylineTogether.Core.Transport.Direct
             RemoteKey = remoteKey;
             _refusal = refusal;
             Incoming = true;
+            _preambleDeadlineTicks = owner.PreambleDeadlineMilliseconds * TimeSpan.TicksPerMillisecond;
+            _lastReceive = _clock.Ticks;
         }
 
         /// <summary>An outgoing connection to <paramref name="target"/>; the client end counts as admitted.</summary>
@@ -114,6 +124,8 @@ namespace SkylineTogether.Core.Transport.Direct
             Peer = peer;
             _target = target;
             _admitted = true;
+            _preambleDeadlineTicks = owner.PreambleDeadlineMilliseconds * TimeSpan.TicksPerMillisecond;
+            _lastReceive = _clock.Ticks;
         }
 
         public int Id { get; }
@@ -138,6 +150,9 @@ namespace SkylineTogether.Core.Transport.Direct
             get => _suppressPongs;
             set => _suppressPongs = value;
         }
+
+        /// <summary>Pongs this end received (each one updated <see cref="ConnectionStats.PingMs"/>).</summary>
+        internal long PongsReceived => Interlocked.Read(ref _pongs);
 
         /// <summary>Test hook: the largest payload buffer the reader asked for.</summary>
         internal long LargestReceiveAllocation => Interlocked.Read(ref _largestAllocation);
@@ -283,8 +298,13 @@ namespace SkylineTogether.Core.Transport.Direct
             try
             {
                 if (_target != null && !ConnectOutgoing()) return;
-                Interlocked.Exchange(ref _lastReceive, _clock.Ticks);
-                lock (_sync) _nextPing = _clock.Ticks + PingTicks;
+                lock (_sync)
+                {
+                    long now = _clock.Ticks;
+                    _preambleSince = now;
+                    _nextPing = now + PingTicks;
+                    Interlocked.Exchange(ref _lastReceive, now);
+                }
                 if (_refusal != null)
                 {
                     AppendFrame(DirectFrameType.Close, 0, DirectFraming.EncodeClose(TransportCloseReason.ListenerFull, _refusal), 0, -1);
@@ -592,6 +612,8 @@ namespace SkylineTogether.Core.Transport.Direct
                 lock (_sync)
                 {
                     if (_ended) return;
+                    _handshakeDone = true;
+                    Interlocked.Exchange(ref _lastReceive, _clock.Ticks);
                     _connectedReported = true;
                     _owner.EnqueueConnected(this);
                 }
@@ -616,7 +638,7 @@ namespace SkylineTogether.Core.Transport.Direct
         private bool ReadFrame(byte[] header)
         {
             DirectFraming.ReadHeader(header, 0, out DirectFrameType type, out byte lane, out int length);
-            if (!DirectFraming.IsValid(type, lane, length, _admitted))
+            if (!DirectFraming.IsValid(type, lane, length))
             {
                 Violation("invalid frame (type " + ((int)type).ToString(CultureInfo.InvariantCulture) + ", " + length.ToString(CultureInfo.InvariantCulture) + " bytes)");
                 return false;
@@ -647,6 +669,7 @@ namespace SkylineTogether.Core.Transport.Direct
                     if (rtt >= 0 && rtt < int.MaxValue * TimeSpan.TicksPerMillisecond)
                     {
                         lock (_sync) _pingMs = (int)(rtt / TimeSpan.TicksPerMillisecond);
+                        Interlocked.Increment(ref _pongs);
                     }
                     break;
                 }
@@ -770,6 +793,15 @@ namespace SkylineTogether.Core.Transport.Direct
 
         private bool CheckTimeoutLocked(long now)
         {
+            if (!_handshakeDone)
+            {
+                // still connecting (ConnectOutgoing has its own deadline) or waiting for the preamble
+                if (_preambleSince == 0 || now - _preambleSince <= _preambleDeadlineTicks) return false;
+                string what = "no handshake within " + (_preambleDeadlineTicks / TimeSpan.TicksPerMillisecond).ToString(CultureInfo.InvariantCulture) + " ms";
+                if (Incoming) _owner.LogStranger(this + ": " + what);
+                FailLocked(TransportCloseReason.Timeout, what);
+                return true;
+            }
             if (_readerPaused) return false;
             long timeout = (_timeoutMs > 0 ? _timeoutMs : ConnectionTimeouts.NormalMilliseconds) * TimeSpan.TicksPerMillisecond;
             if (now - Interlocked.Read(ref _lastReceive) <= timeout) return false;

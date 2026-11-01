@@ -72,6 +72,18 @@ namespace SkylineTogether.Core.Transport.Direct
 
         internal IClock Clock { get; }
 
+        /// <summary>
+        /// How long a connection may take to send a valid preamble once its socket is connected (port scanners and
+        /// old clients that never speak this protocol give their pending slot back); tests shorten it.
+        /// </summary>
+        internal int PreambleDeadlineMilliseconds { get; set; } = 5000;
+
+        /// <summary>Connections whose threads are still running (tests).</summary>
+        internal int ConnectionCount
+        {
+            get { lock (_sync) return _connections.Count; }
+        }
+
         internal ILog Log => _log;
 
         /// <summary>

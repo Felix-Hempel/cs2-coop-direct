@@ -22,7 +22,8 @@ namespace SkylineTogether.Core.Transport.Direct
     /// ASCII preamble <c>STD1</c>; a host that refuses a connection sends a <see cref="DirectFrameType.Close"/> frame
     /// instead. Then frames follow in both directions: <c>u8 type | u8 lane | u32 LE length | payload</c>. Control frames
     /// carry lane 0. A receiver checks the header against <see cref="MaxPayloadBytes"/> before it allocates or reads the
-    /// payload. Pure; thread-safe.
+    /// payload; a data frame carries at most <see cref="Limits.MaxMessageBytes"/>, before and after admission (Steam's
+    /// message cap). Pure; thread-safe.
     /// </summary>
     [ThreadAffinity(ThreadKind.Any)]
     internal static class DirectFraming
@@ -32,12 +33,6 @@ namespace SkylineTogether.Core.Transport.Direct
         public const int PingPayloadBytes = 8;
         public const int MaxCloseTextBytes = 256;
         public const int MaxClosePayloadBytes = 4 + MaxCloseTextBytes;
-
-        /// <summary>
-        /// Largest frame a host reads from a connection before the session admitted it: the size of a <c>Hello</c>
-        /// (<see cref="Limits.MaxBodyBytes"/> of <see cref="MessageKind.Hello"/>, 64 KiB; Limits has no named constant).
-        /// </summary>
-        public const int PreAdmissionMaxFrameBytes = 64 * 1024;
 
         private static readonly byte[] PreambleValue = { (byte)'S', (byte)'T', (byte)'D', (byte)'1' };
 
@@ -68,16 +63,14 @@ namespace SkylineTogether.Core.Transport.Direct
 
         /// <summary>
         /// The largest payload a frame with this header may carry, or -1 when the header is invalid (unknown type, a lane
-        /// out of range, a control frame on a lane). Data frames get <see cref="PreAdmissionMaxFrameBytes"/> until the
-        /// connection is admitted, then <see cref="Limits.MaxMessageBytes"/>.
+        /// out of range, a control frame on a lane).
         /// </summary>
-        public static int MaxPayloadBytes(DirectFrameType type, byte lane, bool admitted)
+        public static int MaxPayloadBytes(DirectFrameType type, byte lane)
         {
             switch (type)
             {
                 case DirectFrameType.Data:
-                    if (lane > (byte)Lane.Bulk) return -1;
-                    return admitted ? Limits.MaxMessageBytes : PreAdmissionMaxFrameBytes;
+                    return lane > (byte)Lane.Bulk ? -1 : Limits.MaxMessageBytes;
                 case DirectFrameType.Ping:
                 case DirectFrameType.Pong:
                     return lane == 0 ? PingPayloadBytes : -1;
@@ -89,9 +82,9 @@ namespace SkylineTogether.Core.Transport.Direct
         }
 
         /// <summary>Whether <paramref name="length"/> is a valid payload size for the header (the fixed sizes of control frames included).</summary>
-        public static bool IsValid(DirectFrameType type, byte lane, int length, bool admitted)
+        public static bool IsValid(DirectFrameType type, byte lane, int length)
         {
-            int max = MaxPayloadBytes(type, lane, admitted);
+            int max = MaxPayloadBytes(type, lane);
             if (max < 0 || length < 0 || length > max) return false;
             if (type == DirectFrameType.Ping || type == DirectFrameType.Pong) return length == PingPayloadBytes;
             if (type == DirectFrameType.Close) return length >= 4;

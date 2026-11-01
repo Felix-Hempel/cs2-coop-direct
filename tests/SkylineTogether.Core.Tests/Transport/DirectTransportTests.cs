@@ -82,6 +82,65 @@ namespace SkylineTogether.Core.Tests.Transport
             }
         }
 
+        /// <summary>A clock that is already well past the keepalive timeout when the test starts (a game running for minutes).</summary>
+        private sealed class OldClock : IClock
+        {
+            private readonly StopwatchClock _inner = new StopwatchClock();
+            private readonly long _offset;
+
+            public OldClock(long offsetTicks) => _offset = offsetTicks;
+
+            public long Ticks => _inner.Ticks + _offset;
+
+            public double Seconds => Ticks / (double)TimeSpan.TicksPerSecond;
+        }
+
+        [Test]
+        public void ConnectSucceedsWithAnOldClock()
+        {
+            var clock = new OldClock(60 * TimeSpan.TicksPerSecond);
+            using (var host = new DirectTransport(NullLog.Instance, clock, "host"))
+            using (var client = new DirectTransport(NullLog.Instance, clock, "client"))
+            {
+                host.Listen(new ListenOptions { IpPort = 0, AllowIp = true });
+                var hostSink = new RecordingSink();
+                var clientSink = new RecordingSink();
+                Action poll = () =>
+                {
+                    host.Poll(hostSink);
+                    client.Poll(clientSink);
+                };
+                poll();
+                client.Connect(Local(host.BoundPort));
+                poll();   // polled at once, while the connect is still in flight
+                Assert.True(PollUntil(() => hostSink.Connected.Count == 1 && clientSink.Connected.Count == 1, 3000, poll), "both ends connect");
+                PollUntil(() => false, 300, poll);
+                Assert.Equal(0, hostSink.Disconnected.Count + clientSink.Disconnected.Count, "no spurious timeout");
+            }
+        }
+
+        [Test]
+        public void SilentStrangerIsClosedAfterPreambleDeadline()
+        {
+            using (DirectTransport host = ListeningHost())
+            using (var raw = new TcpClient())
+            {
+                host.PreambleDeadlineMilliseconds = 500;
+                var sink = new RecordingSink();
+                raw.Connect(IPAddress.Loopback, host.BoundPort);
+                raw.ReceiveTimeout = 3000;
+                var watch = Stopwatch.StartNew();
+                bool closed = false;
+                var reading = new Thread(() => closed = ReadsToEnd(raw.GetStream())) { IsBackground = true };
+                reading.Start();
+                Assert.True(PollUntil(() => !reading.IsAlive, 3000, () => host.Poll(sink)), "the host closes the silent socket");
+                Assert.True(closed, "closed, not timed out on the client");
+                Assert.True(watch.ElapsedMilliseconds >= 400, "not before the deadline: " + watch.ElapsedMilliseconds + " ms");
+                Assert.Equal(0, sink.Connected.Count + sink.Disconnected.Count, "a stranger never reaches the application");
+                Assert.True(PollUntil(() => host.ConnectionCount == 0, 2000, () => host.Poll(sink)), "its pending slot is free");
+            }
+        }
+
         [Test]
         public void ConnectReportsBothEndsAsDirectPeers()
         {
@@ -310,7 +369,7 @@ namespace SkylineTogether.Core.Tests.Transport
         }
 
         [Test]
-        public void OversizedFrameBeforeAdmissionIsClosed()
+        public void OversizedFrameIsClosed()
         {
             using (DirectTransport host = ListeningHost())
             using (var raw = new TcpClient())
@@ -319,14 +378,14 @@ namespace SkylineTogether.Core.Tests.Transport
                 raw.Connect(IPAddress.Loopback, host.BoundPort);
                 raw.ReceiveTimeout = 2000;
                 NetworkStream stream = raw.GetStream();
-                const int length = 64 * 1024 + 1;
+                const int length = Limits.MaxMessageBytes + 1;
                 byte[] frame = { (byte)'S', (byte)'T', (byte)'D', (byte)'1', 0, 0, length & 0xFF, (length >> 8) & 0xFF, (length >> 16) & 0xFF, 0 };
                 stream.Write(frame, 0, frame.Length);
                 Assert.True(PollUntil(() => sink.Disconnected.Count == 1, 2000, () => host.Poll(sink)), "the host drops the connection");
                 Assert.SequenceEqual(new[] { "C", "D" }, sink.Events);
                 Assert.Equal(TransportCloseReason.ProtocolError, sink.Disconnected[0].Reason);
                 var connection = (DirectConnection)sink.Connected[0];
-                Assert.True(connection.LargestReceiveAllocation <= 64 * 1024, "allocated " + connection.LargestReceiveAllocation);
+                Assert.True(connection.LargestReceiveAllocation <= Limits.MaxMessageBytes, "allocated " + connection.LargestReceiveAllocation);
                 Assert.True(ReadsToEnd(stream), "the socket is closed");
             }
         }
@@ -370,10 +429,16 @@ namespace SkylineTogether.Core.Tests.Transport
                 };
                 Assert.True(PollUntil(() => clientSink.Connected.Count == 1, 3000, poll), "connected");
                 byte[] m = TestMessages.Make(3, 77, 300);
+                var watch = Stopwatch.StartNew();
                 Assert.Equal(SendResult.Ok, connection.Send(Lane.Reliable, Delivery.ReliableOrdered, m, 0, m.Length));
                 Assert.True(PollUntil(() => clientSink.Messages.Count == 1, 3000, poll), "the echo arrives");
+                // NetSim delays every application send of each side by 80 ms (± 10 ms jitter): two sends, at least 140 ms
+                Assert.True(watch.ElapsedMilliseconds >= 140, "the round trip went through the simulator: " + watch.ElapsedMilliseconds + " ms");
                 Assert.SequenceEqual(m, clientSink.Messages[0].Data);
-                Assert.True(connection.GetStats().PingMs >= 0);
+                // the transport's own keepalive runs below NetSim and measures a real round trip
+                var inner = (DirectConnection)((NetSimConnection)connection).Inner;
+                Assert.True(PollUntil(() => inner.PongsReceived >= 1, 3000, poll), "a ping was answered");
+                Assert.True(connection.GetStats().PingMs >= 80, "NetSim reports its latency: " + connection.GetStats().PingMs);
             }
         }
 

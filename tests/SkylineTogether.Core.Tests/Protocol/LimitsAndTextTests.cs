@@ -26,7 +26,7 @@ namespace SkylineTogether.Core.Tests.Protocol
         [Test]
         public void PlanConstantsArePinned()
         {
-            Assert.Equal(9, ProtocolVersion.Current); // 9: the exact speed multiplier of the speed payload (ProtocolVersion history)
+            Assert.Equal(1009, ProtocolVersion.Current); // fork: 1000 + upstream 9: the exact speed multiplier of the speed payload (ProtocolVersion history)
             Assert.Equal(512 * 1024, Limits.MaxMessageBytes);
             Assert.Equal(480 * 1024, Limits.FragmentThreshold);
             Assert.Equal(8 * 1024 * 1024, Limits.MaxUncompressedBytes);

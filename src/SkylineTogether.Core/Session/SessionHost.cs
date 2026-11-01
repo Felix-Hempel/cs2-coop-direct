@@ -1604,18 +1604,39 @@ namespace SkylineTogether.Core.Session
         }
 
         /// <summary>
-        /// A Steam user who is already in the session connects again (their game crashed or the old connection is
+        /// The key a direct peer is recognised by when it connects again: its host part without the port and brackets
+        /// (<c>100.64.1.2:51000</c> → <c>100.64.1.2</c>, <c>[fd7a::1]:5</c> → <c>fd7a::1</c>). A rejoining game gets a new
+        /// ephemeral source port, so the port cannot be part of it.
+        /// </summary>
+        internal static string DirectKey(string address) => BanList.AddressHost(address);
+
+        /// <summary>
+        /// A Steam user, or a direct (IP) peer from the same address, who is already in the session connects again (their game crashed or the old connection is
         /// dying): the stale peer is replaced, unless it is evidently still loading the city, in which case the new
         /// attempt is refused with an explanation. Returns false when <paramref name="p"/> was refused.
         /// </summary>
         private bool ResolveDuplicate(Peer p)
         {
-            if (!p.SteamAuthenticated || p.SteamId == 0) return true;
             Peer old = null;
-            foreach (Peer o in _peers.Values)
+            if (p.SteamAuthenticated)
             {
-                if (o != p && o.Admitted && o.SteamAuthenticated && o.SteamId == p.SteamId) old = o;
+                if (p.SteamId == 0) return true;
+                foreach (Peer o in _peers.Values)
+                {
+                    if (o != p && o.Admitted && o.SteamAuthenticated && o.SteamId == p.SteamId) old = o;
+                }
             }
+            else if (p.Direct)
+            {
+                // no identity but the address: a rejoin comes from the same IP with a new source port
+                string key = DirectKey(p.Address);
+                if (key == null) return true;
+                foreach (Peer o in _peers.Values)
+                {
+                    if (o != p && o.Admitted && o.Direct && !o.SteamAuthenticated && DirectKey(o.Address) == key) old = o;
+                }
+            }
+            else return true;
             if (old == null) return true;
             bool stillJoining = old.State != PlayerState.Live && _clock.Seconds - old.LastHeard < 15;
             if (stillJoining)

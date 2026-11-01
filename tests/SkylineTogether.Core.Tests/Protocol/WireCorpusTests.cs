@@ -32,7 +32,7 @@ namespace SkylineTogether.Core.Tests.Protocol
     public sealed class WireCorpusTests
     {
         /// <summary>The protocol version the tables below describe.</summary>
-        private const int PinnedProtocolVersion = 9;
+        private const int PinnedProtocolVersion = 1009;
 
         private const string Reserved = "reserved";
         private const string Corpus = "corpus:";

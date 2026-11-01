@@ -668,7 +668,7 @@ namespace SkylineTogether.Core.Session
         /// (<see cref="ClientOptions.ExpectPassword"/>). Over Steam P2P the host is the Steam account that was dialled
         /// (Steam authenticates it), and a password kept in the join settings must not stop joins of a session without one.
         /// </summary>
-        public bool HostProofRequired => _transport.Kind == TransportKind.SteamIp || _options.ExpectPassword;
+        public bool HostProofRequired => _transport.Kind == TransportKind.SteamIp || _transport.Kind == TransportKind.Direct || _options.ExpectPassword;
 
         /// <summary>The host sent this game a password challenge (the session has a password; <see cref="HostProofExpectation"/>).</summary>
         public bool WasChallenged => _challenge != null || EndKind == ClientEndKind.PasswordRequired;

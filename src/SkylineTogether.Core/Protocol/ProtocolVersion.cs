@@ -34,6 +34,7 @@ namespace SkylineTogether.Core.Protocol
         /// <see cref="Sync.StatisticsDelta"/>); 9: the optional exact speed multiplier at the end of the speed payload
         /// (<see cref="Session.SessionPayloads.WriteSpeed"/>, for speed mods such as Advanced Simulation Speed).
         /// </summary>
-        public const int Current = 9;
+        // fork: 1000 + upstream protocol 9; never talks to upstream builds
+        public const int Current = 1009;
     }
 }

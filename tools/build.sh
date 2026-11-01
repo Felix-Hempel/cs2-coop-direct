@@ -8,7 +8,7 @@
 # (--deploy) -> package (--package). Any failure stops the script before anything is deployed or packaged.
 #
 #   --deploy        copy the mod into the local Mods folder (default:
-#                   %USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\Mods\SkylineTogether)
+#                   %USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\Mods\SkylineTogetherDirect, the fork; never the original mod's folder)
 #   --package       write dist/SkylineTogether-<version>.zip (a SkylineTogether folder with the DLLs, PDBs,
 #                   the UI module, LICENSE, THIRD-PARTY-NOTICES.txt and README.txt; extract it into the Mods folder);
 #                   with Python the zip is reproducible (tools/release_common.py)
@@ -152,7 +152,7 @@ TEST_DLL="tests/SkylineTogether.Core.Tests/bin/Release/net8.0/SkylineTogether.Co
 if [ "$DEPLOY" = 1 ]; then
   if [ -z "$DEPLOY_DIR" ]; then
     [ -n "${USERPROFILE:-}" ] || fail "USERPROFILE is not set; pass --deploy-dir"
-    DEPLOY_DIR="$(to_unix "$USERPROFILE")/AppData/LocalLow/Colossal Order/Cities Skylines II/Mods/SkylineTogether"
+    DEPLOY_DIR="$(to_unix "$USERPROFILE")/AppData/LocalLow/Colossal Order/Cities Skylines II/Mods/SkylineTogetherDirect"
   fi
   DEPLOY_DIR="$(to_unix "$DEPLOY_DIR")"
   step "Deploy to $DEPLOY_DIR"

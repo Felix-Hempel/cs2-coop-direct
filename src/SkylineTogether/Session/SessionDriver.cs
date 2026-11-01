@@ -26,7 +26,7 @@ namespace SkylineTogether.Session
             try
             {
                 Mod.Toasts?.Tick();
-                Mod.Invites?.Tick();
+                if (Mod.HasInvites) TickInvites(); // never in direct mode
             }
             catch (Exception ex)
             {
@@ -44,6 +44,10 @@ namespace SkylineTogether.Session
         }
 
         private static readonly Action ModTick = Compat.ModIntegration.Tick; // cached (was a delegate per frame)
+
+        // its own method: Update is compiled in direct mode too, and must not load SteamInvites (Steamworks)
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void TickInvites() => Mod.Invites?.Tick();
 
         private void OnApplicationQuit()
         {

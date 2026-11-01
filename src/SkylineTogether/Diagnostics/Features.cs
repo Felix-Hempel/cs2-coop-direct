@@ -32,6 +32,12 @@ namespace SkylineTogether.Diagnostics
         /// <summary>Steam API and Steam Networking Sockets.</summary>
         public static readonly FeatureHealth Steam = Registry.Add("steam", "Steam networking", true);
 
+        /// <summary>
+        /// Fork: direct connections over TCP without Steam (<c>DirectTransport</c>), checked by the loopback self-test
+        /// P-DIRECT in direct mode. Critical: hosting and joining are refused when it failed.
+        /// </summary>
+        public static readonly FeatureHealth Direct = Registry.Add("direct", "direct connections", true);
+
         /// <summary>Structure replication (capture, apply, proposals, net ids, the serialization context).</summary>
         public static readonly FeatureHealth Replication = Registry.Add("replication", "city sync", true);
 

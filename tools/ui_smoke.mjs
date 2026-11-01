@@ -4,6 +4,8 @@
 //  - a binding or trigger name the C# side (src/SkylineTogether/UI/*UISystem.cs) does not declare,
 //  - a text key that renders raw (missing from the module's English table),
 //  - a state whose English render lacks a text it must show, or shows one it must not (EXPECT below),
+//  - direct mode (binding directOnly = true, fork): any Steam ID, invite or "friends only" element, a Steam notice, or
+//    a join field without the IP:port placeholder (DIRECT below),
 //  - English texts that differ from src/SkylineTogether/Data/locale.en-US.json, keys missing in another locale table
 //    or in locale-keys.generated.json,
 //  - a main menu entry, top-left button or root that was not registered,
@@ -45,7 +47,7 @@ const gameCss = gameUi ? fs.readFileSync(path.join(gameUi, "index.css"), "utf8")
 const cs = read("src/SkylineTogether/UI/SessionUISystem.cs") + "\n" + read("src/SkylineTogether/UI/ReplayUISystem.cs") + "\n" + read("src/SkylineTogether/UI/InviteUISystem.cs");
 const csBindings = new Set([...cs.matchAll(/GetterValueBinding<[^>]+>\(Group, "([^"]+)"/g)].map((m) => m[1]));
 const csTriggers = new Set([...cs.matchAll(/TriggerBinding(?:<[^>]*>)?\(Group, "([^"]+)"/g)].map((m) => m[1]));
-for (const b of ["state", "join", "net", "presence", "perf"]) if (!csBindings.has(b)) fail("SessionUISystem lost the binding " + b);
+for (const b of ["state", "join", "net", "presence", "perf", "directOnly"]) if (!csBindings.has(b)) fail("SessionUISystem lost the binding " + b);
 for (const t of ["host", "join", "leave", "chat", "kick", "saveHostSettings", "writeDiagnostics", "toggleNetHud", "togglePerfHud", "saveHostOptions", "retryJoin", "dismissEnd", "copySteamId", "copyText", "inviteFriends",
   "ban", "toggleCoHost", "unban", "setFriendsOnly", "setNewPlayersViewer", "resync", "dismissResync", "joinAnyway", "setAllowJoinWithDifferentMods"]) {
   if (!csTriggers.has(t)) fail("SessionUISystem lost the trigger " + t);
@@ -158,8 +160,9 @@ if (!smoke.store) fail("the smoke hook is missing");
 // ---------------------------------------------------------------------------------------------- renderer
 const rawKeys = new Set();
 let renderLabel = "";
-// every text rendered for the current state (EXPECT)
+// every text rendered for the current state (EXPECT), and every placeholder of a field (DIRECT)
 let caseTexts = new Set();
+let casePlaceholders = new Set();
 function render(node) {
   if (node == null || typeof node === "boolean") return 0;
   if (typeof node === "string" || typeof node === "number") {
@@ -172,6 +175,7 @@ function render(node) {
     fail(renderLabel + ": a " + typeof node + " rendered as a child (React throws): " + String(JSON.stringify(node)).slice(0, 80));
     return 0;
   }
+  if (node.props && typeof node.props.placeholder === "string") casePlaceholders.add(node.props.placeholder);
   if (typeof node.type === "function") {
     const props = Object.assign({}, node.props, { children: node.children.length === 1 ? node.children[0] : node.children });
     if (node.type.prototype instanceof Component) {
@@ -394,6 +398,12 @@ const cases = {
   showcaseMods: { state: { ...base, mode: "None", build: "", end: end("refused", "Mismatch", { seq: 9, text: "", target: "", reportKind: "mods", overridable: true,
     missing: [{ name: "Move It", version: "2.4", id: "" }, { name: "Find It", version: "1.1", id: "" }], extra: [{ name: "Anarchy", version: "1.7", id: "" }],
     versions: [{ name: "Traffic", host: "0.6", you: "0.5" }] }) }, snapshotStore: { open: false } },
+  // fork: direct mode (no Steam). The state still says steam: false and may carry invite values: the panel ignores them
+  directLobby: { state: { ...base, mode: "None", steam: false, steamId: "0", canInvite: true, friendsOnly: true, hasPassword: true }, directOnly: true },
+  directLobbyNoPassword: { state: { ...base, mode: "None", steam: false, steamId: "0", inGame: false, canHost: false }, directOnly: true },
+  directHosting: { state: { ...base, mode: "Hosting", steam: false, steamId: "0", status: "Hosting", sessionName: "X", directPort: 27015, canInvite: true, inviteSteamId: "76561190000000000", hasPassword: true, players, chat },
+    directOnly: true, friends, overlayAvailable: true, net, presence: tags },
+  directClient: { state: { ...base, mode: "Client", steam: false, steamId: "0", status: "Connected", sessionName: "X", canInvite: true, inviteSteamId: "76561190000000009", players, chat }, directOnly: true, friends, overlayAvailable: true },
 };
 // texts an English render of a state must show (has) or must not show (lacks)
 const JOIN_ANYWAY = "Join anyway";
@@ -452,6 +462,13 @@ const EXPECT = {
     "Join with this password"], lacks: ["Joining failed", "bug report", JOIN_ANYWAY] },
 };
 for (const name of Object.keys(EXPECT)) if (!cases[name]) fail("EXPECT names an unknown state " + name);
+// direct mode: no Steam ID, no invites, no "friends only", no Steam notice; the join fields ask for IP:port
+const DIRECT = {
+  triggers: ["copySteamId", "inviteFriends", "inviteFriend", "openInviteOverlay", "refreshFriends", "setFriendsOnly"],
+  lacks: ["Your Steam ID", "Host's Steam ID", "Invite friends", "Invite Steam friends", "Friends and invited only", "Steam isn't available", "Steam connected",
+    "Got a Steam invite? Accept it in Steam and the game joins by itself.", "76561190000000000", "76561190000000009"],
+  placeholders: { has: ["IP:port"], lacks: ["Steam ID or IP:port"] },
+};
 const passes = [
   { name: "vanilla", ui: vanillaUi, locale: null, forceTrue: false, effects: true },
   { name: "vanilla-de-forced", ui: vanillaUi, locale: de, forceTrue: true, effects: false },
@@ -484,6 +501,8 @@ for (const pass of passes) {
   runEffects = pass.effects;
   for (const [name, c] of Object.entries(cases)) {
     caseTexts = new Set();
+    casePlaceholders = new Set();
+    const triggersBefore = triggers.length;
     values = {};
     for (const k of Object.keys(c)) values[k] = typeof c[k] === "string" || typeof c[k] === "boolean" ? c[k] : JSON.stringify(c[k]);
     for (const tab of ["host", "join", "solo"]) {
@@ -513,6 +532,14 @@ for (const pass of passes) {
     catch (e) { fail(pass.name + " " + name + " main menu: " + (e && e.stack)); }
     settle(renderLabel);
     runHandlers(pass.name + " " + name + " main menu");
+    if (c.directOnly === true) {
+      for (const tr of triggers.slice(triggersBefore)) if (tr[0] === "skylineTogether" && DIRECT.triggers.includes(tr[1])) fail(pass.name + " " + name + ": direct mode fires the Steam trigger " + tr[1]);
+      if (pass.locale === null) {
+        for (const text of DIRECT.lacks) if (caseTexts.has(text)) fail(pass.name + " " + name + ": direct mode shows " + JSON.stringify(text));
+        for (const ph of DIRECT.placeholders.lacks) if (casePlaceholders.has(ph)) fail(pass.name + " " + name + ": direct mode has the placeholder " + JSON.stringify(ph));
+        if (c.state.mode === "None") for (const ph of DIRECT.placeholders.has) if (!casePlaceholders.has(ph)) fail(pass.name + " " + name + ": direct mode lacks the placeholder " + JSON.stringify(ph));
+      }
+    }
     // English passes: the state shows what it must (texts are whole rendered strings)
     const want = EXPECT[name];
     if (want && pass.locale === null) {

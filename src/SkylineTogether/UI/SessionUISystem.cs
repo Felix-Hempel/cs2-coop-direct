@@ -110,6 +110,8 @@ namespace SkylineTogether.UI
             _stateBinding = new GetterValueBinding<string>(Group, "state", () => Guard.GetRetrying(Features.Ui, "panel state", _buildState, _state, ref _stateRetry));
             AddUpdateBinding(_stateBinding);
             AddUpdateBinding(new GetterValueBinding<string>(Group, "join", () => Guard.GetRetrying(Features.Ui, "join progress", _buildJoin, _join, ref _joinRetry)));
+            // fork: direct mode (no Steam): the panel hides the Steam ID, invites and "friends only", and asks for IP:port
+            AddUpdateBinding(new GetterValueBinding<bool>(Group, "directOnly", () => Mod.Settings != null && Mod.Settings.DirectOnly));
             AddBinding(new TriggerBinding(Group, "host", () => Trigger("host", () => Mod.Sessions?.StartHosting())));
             AddBinding(new TriggerBinding<string, string>(Group, "join", (target, password) => Trigger("join", () =>
             {
@@ -194,11 +196,15 @@ namespace SkylineTogether.UI
             AddBinding(new TriggerBinding(Group, "joinAnyway", () => Trigger("joinAnyway", () => Mod.Sessions?.JoinAnyway())));
             AddBinding(new TriggerBinding(Group, "copySteamId", () => Trigger("copySteamId", () =>
             {
-                ulong id = Mod.Invites != null && Mod.Invites.InviteTarget != 0 ? Mod.Invites.InviteTarget : Mod.Sessions?.LocalSteamId ?? 0;
+                ulong invite = Mod.HasInvites ? InviteTarget() : 0;
+                ulong id = invite != 0 ? invite : Mod.Sessions?.LocalSteamId ?? 0;
                 if (id != 0) Copy(id.ToString(CultureInfo.InvariantCulture));
             })));
             AddBinding(new TriggerBinding<string>(Group, "copyText", text => Trigger("copyText", () => Copy(text ?? ""))));
-            AddBinding(new TriggerBinding(Group, "inviteFriends", () => Trigger("inviteFriends", () => Mod.Invites?.OpenInviteDialog())));
+            AddBinding(new TriggerBinding(Group, "inviteFriends", () => Trigger("inviteFriends", () =>
+            {
+                if (Mod.HasInvites) OpenInviteDialog();
+            })));
 
             // recovery after an unexpected end of a client session in the host's city
             AddBinding(new TriggerBinding(Group, "reconnect", () => Trigger("reconnect", () => Mod.Sessions?.Reconnect())));
@@ -220,6 +226,13 @@ namespace SkylineTogether.UI
             AddUpdateBinding(new GetterValueBinding<string>(Group, "perf", () => Guard.GetRetrying(Features.Ui, "perf overlay", _buildPerf, "{\"show\":false}", ref _perfRetry)));
             AddBinding(new TriggerBinding(Group, "togglePerfHud", () => Trigger("togglePerfHud", PerfOverlay.Toggle)));
         }
+
+        // Steam invites in methods of their own: BuildState is compiled in direct mode too and must not load SteamInvites
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static ulong InviteTarget() => Mod.Invites?.InviteTarget ?? 0;
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpenInviteDialog() => Mod.Invites?.OpenInviteDialog();
 
         private static void Copy(string text)
         {
@@ -482,7 +495,7 @@ namespace SkylineTogether.UI
                 // cheap values that can change without an event, sampled at the same rate
                 _inGame = GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game;
                 _steam = SessionManager.SteamAvailable;
-                _inviteTarget = Mod.Invites?.InviteTarget ?? 0;
+                _inviteTarget = Mod.HasInvites ? InviteTarget() : 0;
             }
             var key = new StateKey
             {
@@ -539,7 +552,7 @@ namespace SkylineTogether.UI
             sb.Append('{');
             Prop(sb, "mode", s.Mode.ToString()).Append(',');
             Prop(sb, "canHost", s.CanHost).Append(',');
-            Prop(sb, "canJoin", s.CanJoin || (!s.InSession && steam && SessionManager.BlockingFeature() == null)).Append(',');
+            Prop(sb, "canJoin", s.CanJoin || (!s.InSession && (steam || s.DirectOnly) && SessionManager.BlockingFeature() == null)).Append(',');
             Prop(sb, "steam", steam).Append(',');
             Prop(sb, "steamId", s.LocalSteamId.ToString(CultureInfo.InvariantCulture)).Append(',');
             Prop(sb, "directPort", s.DirectPort).Append(',');

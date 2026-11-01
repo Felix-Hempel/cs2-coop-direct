@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Colossal.IO.AssetDatabase;
 using Game;
 using Game.Common;
@@ -46,8 +47,23 @@ namespace SkylineTogether
         /// <summary>Vehicle and creature replication.</summary>
         public static MoverSync Movers { get; private set; }
 
-        /// <summary>Steam friends: lobby, rich presence, the invite dialog, direct invites, the friends list, invite joins.</summary>
-        public static SteamInvites Invites { get; private set; }
+        /// <summary>
+        /// Steam friends: lobby, rich presence, the invite dialog, direct invites, the friends list, invite joins. Null in
+        /// direct mode (<see cref="SkylineTogetherSettings.DirectOnly"/>) and when it failed to start; every user checks.
+        /// Code that also runs in direct mode asks <see cref="HasInvites"/> first and touches this property only in a
+        /// method of its own, so its JIT never loads <see cref="SteamInvites"/> (and with it Steamworks).
+        /// </summary>
+        public static SteamInvites Invites
+        {
+            get => (SteamInvites)_invites;
+            private set => _invites = value;
+        }
+
+        /// <summary>Steam invites run (false in direct mode); reading it loads no Steam type.</summary>
+        public static bool HasInvites => _invites != null;
+
+        // typed object: the field's type is loaded with Mod, and Mod runs in direct mode
+        private static object _invites;
 
         /// <summary>Solo testing: "Record test session" and "Replay &amp; verify" (ARCHITECTURE.md#solo-test-record-and-replay).</summary>
         public static SkylineTogether.Replay.ReplayController Replay { get; private set; }
@@ -81,17 +97,10 @@ namespace SkylineTogether
                 LocaleSource.RegisterAll(Settings); // every embedded Data/locale.<id>.json, English as the fallback
                 AssetDatabase.global.LoadSettings(Name, Settings, new SkylineTogetherSettings(this));
             });
-            Step(log, "Steam relay network", () =>
-            {
-                try
-                {
-                    SteamNetworkingUtils.InitRelayNetworkAccess();
-                }
-                catch (Exception ex)
-                {
-                    log.Warn(LogCategory.Net, "Steam relay network unavailable (is this the Steam version of the game?)", ex);
-                }
-            });
+            // fork: direct mode never calls Steam (the player's copy answers Steam calls with bogus results)
+            bool directOnly = Settings == null || Settings.DirectOnly;
+            if (directOnly) log.Info(LogCategory.Session, "direct mode: Steam is not used (no relay network, invites, friends or Steam self-tests)");
+            else Step(log, "Steam relay network", () => InitSteamRelay(log));
             // the self-test (ARCHITECTURE.md#feature-health-and-guards): types, private members, Steam; features whose probe fails stay off
             Step(log, "self-test", () => Probes.RunStartup(log));
             // P-REFS: every type and member reference of the mod resolved once on a background thread, so a game update that
@@ -109,7 +118,7 @@ namespace SkylineTogether
                 Clock = new FollowerClock(Sessions, log);
                 Movers = new MoverSync(Sessions, log);
                 Toasts = new SessionToasts(Sessions);
-                Invites = new SteamInvites(Sessions, Settings, log);
+                if (!directOnly) Invites = NewSteamInvites(Sessions, Settings, log);
                 Replay = new SkylineTogether.Replay.ReplayController(Sessions, log); // solo testing
                 Compat.ModIntegration.Attach(Sessions, log); // session events and the channel for other mods
             });
@@ -186,6 +195,27 @@ namespace SkylineTogether
             log.Info(LogCategory.Session, "loaded; " + Probes.Summary);
         }
 
+        // ---- Steam (never compiled in direct mode: Mono loads every type a method references when it JIT-compiles it)
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void InitSteamRelay(ILog log)
+        {
+            try
+            {
+                SteamNetworkingUtils.InitRelayNetworkAccess();
+            }
+            catch (Exception ex)
+            {
+                log.Warn(LogCategory.Net, "Steam relay network unavailable (is this the Steam version of the game?)", ex);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void DisposeInvites() => Invites?.Dispose();
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static SteamInvites NewSteamInvites(SessionManager sessions, SkylineTogetherSettings settings, ILog log) => new SteamInvites(sessions, settings, log);
+
         /// <summary>Runs one part of <see cref="OnLoad"/>; a failure is logged and the next part still runs.</summary>
         private static bool Step(ILog log, string what, Action action)
         {
@@ -217,13 +247,13 @@ namespace SkylineTogether
             Sessions = null;
             try
             {
-                Invites?.Dispose();
+                if (HasInvites) DisposeInvites();
             }
             catch (Exception ex)
             {
                 Log?.Warn(LogCategory.Session, "leaving the Steam lobby or clearing the rich presence failed", ex);
             }
-            Invites = null;
+            _invites = null;
             Toasts = null;
             // the codec's persistent native buffers and serialization contexts were never freed
             try

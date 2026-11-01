@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Colossal.UI.Binding;
 using Game.UI;
 using SkylineTogether.Diagnostics;
@@ -19,6 +20,11 @@ namespace SkylineTogether.UI
     /// the panel's older <c>inviteFriends</c> trigger takes the same path) and <c>refreshFriends()</c>.</item>
     /// </list>
     /// tools/ui_smoke.mjs checks these names like the panel's own.
+    /// <para>
+    /// Direct mode (fork, no Steam): <see cref="Mod.Invites"/> is null, so <c>friends</c> stays <c>[]</c>,
+    /// <c>overlayAvailable</c> false and the triggers do nothing. Everything that touches <see cref="SteamInvites"/> sits
+    /// in a method of its own behind <see cref="Mod.HasInvites"/>, so the getters compiled in direct mode load no Steam type.
+    /// </para>
     /// </summary>
     public sealed class InviteUISystem : UISystemBase
     {
@@ -37,9 +43,18 @@ namespace SkylineTogether.UI
             _buildOverlay = BuildOverlay;
             AddUpdateBinding(new GetterValueBinding<string>(Group, "friends", () => Guard.GetRetrying(Features.Invites, "friends list", _buildFriends, _friends, ref _friendsRetry, RetrySeconds)));
             AddUpdateBinding(new GetterValueBinding<bool>(Group, "overlayAvailable", () => Guard.GetRetrying(Features.Invites, "Steam overlay state", _buildOverlay, false, ref _overlayRetry, RetrySeconds)));
-            AddBinding(new TriggerBinding<string>(Group, "inviteFriend", steamId => Trigger("inviteFriend", () => Mod.Invites?.InviteFriend(steamId))));
-            AddBinding(new TriggerBinding(Group, "openInviteOverlay", () => Trigger("openInviteOverlay", () => Mod.Invites?.OpenInviteDialog())));
-            AddBinding(new TriggerBinding(Group, "refreshFriends", () => Trigger("refreshFriends", () => Mod.Invites?.Friends.RequestRefresh())));
+            AddBinding(new TriggerBinding<string>(Group, "inviteFriend", steamId => Trigger("inviteFriend", () =>
+            {
+                if (Mod.HasInvites) InviteFriend(steamId);
+            })));
+            AddBinding(new TriggerBinding(Group, "openInviteOverlay", () => Trigger("openInviteOverlay", () =>
+            {
+                if (Mod.HasInvites) OpenInviteDialog();
+            })));
+            AddBinding(new TriggerBinding(Group, "refreshFriends", () => Trigger("refreshFriends", () =>
+            {
+                if (Mod.HasInvites) RefreshFriends();
+            })));
         }
 
         /// <summary>A panel action; runs even when the feature tripped (counted all the same).</summary>
@@ -47,13 +62,29 @@ namespace SkylineTogether.UI
 
         private string BuildFriends()
         {
-            SteamInvites invites = Mod.Invites;
             SessionManager s = Mod.Sessions;
-            if (invites == null || s == null) return "[]";
-            _friends = invites.Friends.Json(s.Clock.Seconds);
+            if (!Mod.HasInvites || s == null) return "[]";
+            _friends = FriendsJson(s.Clock.Seconds);
             return _friends;
         }
 
-        private static bool BuildOverlay() => Mod.Invites != null && Mod.Sessions != null && Mod.Invites.OverlayAvailable;
+        private static bool BuildOverlay() => Mod.HasInvites && Mod.Sessions != null && OverlayAvailable();
+
+        // ---- SteamInvites, never compiled in direct mode
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string FriendsJson(double now) => Mod.Invites?.Friends.Json(now) ?? "[]";
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool OverlayAvailable() => Mod.Invites != null && Mod.Invites.OverlayAvailable;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void InviteFriend(string steamId) => Mod.Invites?.InviteFriend(steamId);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void OpenInviteDialog() => Mod.Invites?.OpenInviteDialog();
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void RefreshFriends() => Mod.Invites?.Friends.RequestRefresh();
     }
 }

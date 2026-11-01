@@ -10,6 +10,7 @@ using Game.Simulation;
 using Game.UI.InGame;
 using SkylineTogether.Core;
 using SkylineTogether.Core.Diagnostics;
+using SkylineTogether.Core.Transport.Direct;
 using SkylineTogether.Sync;
 using Steamworks;
 using Unity.Collections;
@@ -358,7 +359,9 @@ namespace SkylineTogether.Diagnostics
             ProbeTypeNames("P-FLOW", Features.FlowStatus, FlowStatusSync.FlowSystemNames, systems: true);
             ProbeTypeNames("P-PREVIEW", Features.Previews, Presence.ToolPreviewCapture.TypeNames, systems: false);
             Safe("P-PREVIEW-CODEC", Features.Previews, "tool preview encode/decode round trip", ProbePreviewCodec);
-            ProbeSteam();
+            // fork: direct mode never calls Steam; the loopback self-test of the direct transport takes the Steam probes' place
+            if (Mod.Settings == null || Mod.Settings.DirectOnly) ProbeDirect(log);
+            else ProbeSteam();
             if (world) ProbeWorld();
             // types looked up by name elsewhere (FamilyClassifier.FindType) that were missing when used
             foreach (string name in FamilyClassifier.MissingTypeNames())
@@ -562,6 +565,46 @@ namespace SkylineTogether.Diagnostics
             }
         }
 
+        /// <summary>P-DIRECT's result once it ran (null: not yet); the loopback test runs once per game start.</summary>
+        private static string _directResult;
+
+        private const string DirectModeOff = "off: direct mode";
+
+        /// <summary>
+        /// Direct mode: the Steam probes are not run and are listed as <see cref="DirectModeOff"/> (not as failures), and
+        /// P-DIRECT checks the direct transport over a loopback socket pair (<see cref="DirectSelfTest"/>, 3 s at most).
+        /// A failure switches the critical feature <see cref="Features.Direct"/> off, so hosting and joining are refused.
+        /// </summary>
+        private static void ProbeDirect(ILog log)
+        {
+            foreach ((string id, FeatureHealth feature, string target) in new[]
+            {
+                ("P-STEAM", Features.Steam, "Steam client running and logged in"),
+                ("P-STEAMSOCKETS", Features.Steam, "Steam Networking Sockets (poll group, connection callback)"),
+                ("P-STEAMLANES", Features.Steam, "Steam Networking Sockets lanes (loopback self-test)"),
+                ("P-RELAY", Features.Steam, "Steam relay network"),
+                ("P-FRIENDS", Features.Invites, "Steam friends and lobby callbacks"),
+            })
+            {
+                Results.Add(new ProbeResult { Id = id, Feature = feature.Id, Target = target, Ok = true, Detail = DirectModeOff });
+            }
+            if (_directResult == null)
+            {
+                try
+                {
+                    _directResult = DirectSelfTest.Run(log ?? Core.Testing.NullLog.Instance, new Core.Testing.StopwatchClock(), 3000) ?? "";
+                }
+                catch (Exception ex)
+                {
+                    _directResult = ex.GetType().Name + ": " + ex.Message;
+                }
+            }
+            string detail = _directResult;
+            Results.Add(new ProbeResult { Id = "P-DIRECT", Feature = Features.Direct.Id, Target = "direct TCP transport (127.0.0.1 loopback, every lane both ways)", Ok = detail.Length == 0, Detail = detail.Length == 0 ? null : detail });
+        }
+
+        // never compiled in direct mode (Mono loads every type a method references when it JIT-compiles it)
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void ProbeSteam()
         {
             Safe("P-STEAM", Features.Steam, "Steam client running and logged in", () =>

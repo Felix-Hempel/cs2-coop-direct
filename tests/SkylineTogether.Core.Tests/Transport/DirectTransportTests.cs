@@ -96,6 +96,17 @@ namespace SkylineTogether.Core.Tests.Transport
         }
 
         [Test]
+        public void SelfTestPassesOnLoopback()
+        {
+            // P-DIRECT (the in-game self-test of direct mode): every lane both ways over 127.0.0.1
+            var log = new ListLog(LogLevel.Debug);
+            var watch = Stopwatch.StartNew();
+            string failure = DirectSelfTest.Run(log, Clock, 3000);
+            Assert.Equal(null, failure, failure);
+            Assert.True(watch.ElapsedMilliseconds < 3000, "well inside the probe's timeout: " + watch.ElapsedMilliseconds + " ms");
+        }
+
+        [Test]
         public void ConnectSucceedsWithAnOldClock()
         {
             var clock = new OldClock(60 * TimeSpan.TicksPerSecond);

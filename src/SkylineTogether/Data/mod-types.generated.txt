@@ -56,6 +56,7 @@ SkylineTogether.Diagnostics.ReferenceProbe
 SkylineTogether.Diagnostics.ShortPaths
 SkylineTogether.Mod
 SkylineTogether.Net.SteamConnection
+SkylineTogether.Net.SteamFacade
 SkylineTogether.Net.SteamLanes
 SkylineTogether.Net.SteamSocketsTransport
 SkylineTogether.Presence.PrefabRankIndex

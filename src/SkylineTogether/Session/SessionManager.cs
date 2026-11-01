@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Colossal.PSI.Common;
 using Colossal.Serialization.Entities;
 using Game;
@@ -13,11 +14,11 @@ using SkylineTogether.Core.Diagnostics;
 using SkylineTogether.Core.Protocol;
 using SkylineTogether.Core.Session;
 using SkylineTogether.Core.Transport;
+using SkylineTogether.Core.Transport.Direct;
 using SkylineTogether.Diagnostics;
 using SkylineTogether.Net;
 using SkylineTogether.Settings;
 using SkylineTogether.Sync;
-using Steamworks;
 using Unity.Entities;
 using ILog = SkylineTogether.Core.ILog;
 
@@ -183,9 +184,16 @@ namespace SkylineTogether.Session
         /// <summary>The players of the session that ended (shown while recovering).</summary>
         public IReadOnlyList<PlayerInfo> LastPlayers => _lastPlayers;
 
-        public bool CanHost => !InSession && SteamAvailable && BlockingFeature() == null && GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game && !GameManager.instance.isGameLoading;
+        /// <summary>
+        /// Fork: host and join over <see cref="DirectTransport"/> only, without any Steam call (the setting
+        /// <see cref="SkylineTogetherSettings.DirectOnly"/>). Every Steam use of this class sits behind it, in methods of
+        /// their own that are never compiled on the direct path (<see cref="SteamFacade"/>, <see cref="NewSteamTransport"/>).
+        /// </summary>
+        public bool DirectOnly => _settings.DirectOnly;
 
-        public bool CanJoin => !InSession && SteamAvailable && BlockingFeature() == null && !string.IsNullOrWhiteSpace(_settings.JoinTarget) && (GameManager.instance == null || !GameManager.instance.isGameLoading)
+        public bool CanHost => !InSession && (DirectOnly || SteamAvailable) && BlockingFeature() == null && GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game && !GameManager.instance.isGameLoading;
+
+        public bool CanJoin => !InSession && (DirectOnly || SteamAvailable) && BlockingFeature() == null && !string.IsNullOrWhiteSpace(_settings.JoinTarget) && (GameManager.instance == null || !GameManager.instance.isGameLoading)
                                && !_loader.IsLoading // an earlier join's import or load still runs
                                && _lookup == null; // a typed host name is still being resolved
 
@@ -207,39 +215,25 @@ namespace SkylineTogether.Session
 
         public int PlayersVersion => _playersVersion;
 
-        public ulong LocalSteamId
-        {
-            get
-            {
-                try
-                {
-                    return SteamUser.GetSteamID().m_SteamID;
-                }
-                catch (Exception)
-                {
-                    return 0;
-                }
-            }
-        }
+        /// <summary>This player's SteamID64; 0 in direct mode (Steam is never asked) or without Steam.</summary>
+        public ulong LocalSteamId => DirectOnly ? 0 : SteamFacade.LocalId();
 
-        public int DirectPort => _settings.AllowDirectConnections ? _settings.DirectPort : 0;
+        /// <summary>The port direct joiners dial: always in direct mode, else only while direct connections are allowed (0: none).</summary>
+        public int DirectPort => DirectOnly || _settings.AllowDirectConnections ? _settings.DirectPort : 0;
 
-        /// <summary>Steam is running with a logged-in user (checked at most once a second; the UI asks every frame).</summary>
+        /// <summary>
+        /// Steam is running with a logged-in user (checked at most once a second; the UI asks every frame). Always false in
+        /// direct mode, where Steam is never asked.
+        /// </summary>
         public static bool SteamAvailable
         {
             get
             {
+                if (Mod.Settings != null && Mod.Settings.DirectOnly) return false;
                 double now = SteamClock.Elapsed.TotalSeconds;
                 if (now - _steamCheckedAt < 1.0) return _steamAvailable;
                 _steamCheckedAt = now;
-                try
-                {
-                    _steamAvailable = SteamAPI.IsSteamRunning() && SteamUser.GetSteamID().IsValid();
-                }
-                catch (Exception)
-                {
-                    _steamAvailable = false;
-                }
+                _steamAvailable = SteamFacade.IsAvailable();
                 return _steamAvailable;
             }
         }
@@ -259,15 +253,22 @@ namespace SkylineTogether.Session
             {
                 string name = (_settings.PlayerName ?? "").Trim();
                 if (name.Length > 0) return name;
-                try
+                if (DirectOnly)
                 {
-                    name = SteamFriends.GetPersonaName();
+                    try
+                    {
+                        name = Environment.UserName;
+                    }
+                    catch (Exception)
+                    {
+                        name = null;
+                    }
                 }
-                catch (Exception)
+                else
                 {
-                    name = null;
+                    name = SteamFacade.PersonaName();
                 }
-                return string.IsNullOrWhiteSpace(name) ? "Player" : name;
+                return string.IsNullOrWhiteSpace(name) ? "Player" : name.Trim();
             }
         }
 
@@ -327,26 +328,43 @@ namespace SkylineTogether.Session
             {
                 string why;
                 if (InSession) why = LocaleSource.Resolve("st.toast.join.inSession");
-                else if (!SteamAvailable) why = LocaleSource.Resolve("st.toast.join.noSteam");
+                else if (!DirectOnly && !SteamAvailable) why = LocaleSource.Resolve("st.toast.join.noSteam");
                 else if (BlockingReason() != null) why = LocaleSource.Resolve("st.toast.blocked", "REASON", BlockingReason());
                 else why = LocaleSource.Resolve("st.toast.hostNeedsCity");
                 Notify(why, ProgressState.Warning);
                 return;
             }
+            bool directOnly = DirectOnly;
+            if (directOnly && string.IsNullOrEmpty(_settings.HostPassword))
+            {
+                // direct peers have no Steam identity: the session password is what admits them (HostOptions.PasswordForUnauthenticated)
+                _log.Warn(LogCategory.Session, "direct mode needs a session password to host; hosting not started");
+                Notify(LocaleSource.Resolve("st.toast.directNeedsPassword"), ProgressState.Warning, null, 10f);
+                return;
+            }
             SessionHost created = null;
-            SteamSocketsTransport transport = null;
+            ITransport transport = null;
             try
             {
                 Features.Registry.RearmAll();
                 string name = PlayerName;
-                transport = new SteamSocketsTransport(TransportKind.SteamP2P, _log);
-                // the direct-IP socket opens only with a password (the host would refuse every direct
-                // joiner without one anyway, HostOptions.PasswordForUnauthenticated)
-                bool direct = _settings.AllowDirectConnections && !string.IsNullOrEmpty(_settings.HostPassword);
-                if (_settings.AllowDirectConnections && !direct)
+                bool direct;
+                if (directOnly)
                 {
-                    _log.Warn(LogCategory.Session, "direct connections are on but no host password is set; only Steam joining is open");
-                    Notify(LocaleSource.Resolve("st.toast.directNeedsPassword"), ProgressState.Warning, null, 10f);
+                    transport = new DirectTransport(_log, _clock, name);
+                    direct = true;
+                }
+                else
+                {
+                    transport = NewSteamTransport(TransportKind.SteamP2P, _log);
+                    // the direct-IP socket opens only with a password (the host would refuse every direct
+                    // joiner without one anyway, HostOptions.PasswordForUnauthenticated)
+                    direct = _settings.AllowDirectConnections && !string.IsNullOrEmpty(_settings.HostPassword);
+                    if (_settings.AllowDirectConnections && !direct)
+                    {
+                        _log.Warn(LogCategory.Session, "direct connections are on but no host password is set; only Steam joining is open");
+                        Notify(LocaleSource.Resolve("st.toast.directNeedsPassword"), ProgressState.Warning, null, 10f);
+                    }
                 }
                 // the old multiplayer mod: hosting works, but every joiner is refused (the panel keeps a warning)
                 string conflicting = GameInfoProvider.ConflictingMod();
@@ -367,12 +385,12 @@ namespace SkylineTogether.Session
                     RequireSameAssets = _settings.RequireSameAssets,
                     AllowModMismatchOverride = _settings.AllowJoinWithDifferentMods,
                     Listen = new ListenOptions { VirtualPort = VirtualPort, AllowIp = direct, IpPort = _settings.DirectPort, MaxConnections = Math.Max(2, _settings.MaxPlayers) },
-                    // snapshot chunks are pumped between frames too (Steam connections are thread-safe)
+                    // snapshot chunks are pumped between frames too (Steam and direct connections are thread-safe)
                     BackgroundPump = true,
-                    // join policy and the persisted ban list
-                    JoinPolicy = _settings.FriendsOnly ? JoinPolicy.FriendsAndInvited : JoinPolicy.Open,
+                    // join policy and the persisted ban list (direct mode has no Steam friends to restrict to)
+                    JoinPolicy = _settings.FriendsOnly && !directOnly ? JoinPolicy.FriendsAndInvited : JoinPolicy.Open,
                     NewPlayersJoinAsViewer = _settings.NewPlayersJoinAsViewer,
-                    IsFriendOrInvited = id => Mod.Invites != null && Mod.Invites.IsFriendOrInvited(id),
+                    IsFriendOrInvited = id => Mod.HasInvites && Mod.Invites.IsFriendOrInvited(id),
                     Bans = BanList.Parse(_settings.BannedPlayers),
                     // 200 000 PBKDF2 rounds: never on the main thread
                     DeriveKeysInBackground = true,
@@ -412,11 +430,15 @@ namespace SkylineTogether.Session
                 LastEnd = null;
                 ClearChat();
                 string steamId = LocalSteamId.ToString(CultureInfo.InvariantCulture);
+                int listening = directOnly ? ((DirectTransport)transport).BoundPort : SteamListeningIpPort(transport);
+                string port = listening.ToString(CultureInfo.InvariantCulture);
                 AddChat(new ChatEntry
                 {
                     IsSystem = true,
-                    Text = LocaleSource.Resolve("st.chat.hostingStarted", "SESSION", options.SessionName, "ID", steamId)
-                           + (transport.ListeningIpPort > 0 ? " " + LocaleSource.Resolve("st.chat.hostingDirect", "PORT", transport.ListeningIpPort.ToString(CultureInfo.InvariantCulture)) : ""),
+                    Text = directOnly
+                        ? LocaleSource.Resolve("st.chat.hostingStartedDirect", "SESSION", options.SessionName, "PORT", port)
+                        : LocaleSource.Resolve("st.chat.hostingStarted", "SESSION", options.SessionName, "ID", steamId)
+                          + (listening > 0 ? " " + LocaleSource.Resolve("st.chat.hostingDirect", "PORT", port) : ""),
                 });
                 if (!RaiseStarted(HostStarted, host, "host"))
                 {
@@ -424,29 +446,54 @@ namespace SkylineTogether.Session
                     Notify(LocaleSource.Resolve("st.toast.startFailed"), ProgressState.Failed);
                     return;
                 }
-                Notify(LocaleSource.Resolve("st.toast.hostingStarted", "SESSION", options.SessionName, "ID", steamId), ProgressState.Complete);
+                Notify(directOnly
+                    ? LocaleSource.Resolve("st.toast.hostingStartedDirect", "SESSION", options.SessionName, "PORT", port)
+                    : LocaleSource.Resolve("st.toast.hostingStarted", "SESSION", options.SessionName, "ID", steamId), ProgressState.Complete);
+            }
+            catch (DirectListenException ex)
+            {
+                // the port is taken (usually the old multiplayer mod's server or a second game): say which, not a stack trace
+                _log.Warn(LogCategory.Session, "hosting failed: " + ex.Message);
+                DisposeUnstarted(created, transport);
+                StopHost(null);
+                Notify(LocaleSource.Resolve("st.toast.portBusy", "PORT", ex.Port.ToString(CultureInfo.InvariantCulture)), ProgressState.Failed, null, 15f);
             }
             catch (Exception ex)
             {
                 _log.Error(LogCategory.Session, "hosting failed", ex);
-                if (Host == null)
-                {
-                    // Start() failed (no listen socket), so the transport's Steam callback and poll group leaked;
-                    // the host owns the transport once it exists
-                    try
-                    {
-                        if (created != null) created.Dispose();
-                        else transport?.Dispose();
-                    }
-                    catch (Exception)
-                    {
-                        // best effort
-                    }
-                }
+                DisposeUnstarted(created, transport);
                 StopHost(null);
                 Notify(LocaleSource.Resolve("st.toast.hostFailed", "ERROR", ex.Message), ProgressState.Failed);
             }
         }
+
+        // Start() failed (no listen socket), so the transport's sockets (Steam: callback and poll group) leaked;
+        // the host owns the transport once it exists
+        private void DisposeUnstarted(SessionHost created, ITransport transport)
+        {
+            if (Host != null) return;
+            try
+            {
+                if (created != null) created.Dispose();
+                else transport?.Dispose();
+            }
+            catch (Exception)
+            {
+                // best effort
+            }
+        }
+
+        // ---- Steam transport (never compiled on the direct path: Mono loads every type a method references when it
+        // JIT-compiles it, so these stay out of StartHosting, BeginJoin and Tick)
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static ITransport NewSteamTransport(TransportKind kind, ILog log) => new SteamSocketsTransport(kind, log);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int SteamListeningIpPort(ITransport transport) => transport is SteamSocketsTransport steam ? steam.ListeningIpPort : 0;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PumpSteamDeferredCloses() => SteamSocketsTransport.PumpDeferredCloses();
 
         /// <summary>
         /// Solo testing: hosts the city without any network part, so the test recorder can join it alone (no Steam
@@ -596,7 +643,7 @@ namespace SkylineTogether.Session
                 string why;
                 if (_rejoin.Recovering) why = LocaleSource.Resolve("st.toast.join.recovering");
                 else if (InSession) why = LocaleSource.Resolve("st.toast.join.inSession");
-                else if (!SteamAvailable) why = LocaleSource.Resolve("st.toast.join.noSteam");
+                else if (!DirectOnly && !SteamAvailable) why = LocaleSource.Resolve("st.toast.join.noSteam");
                 else if (BlockingReason() != null) why = LocaleSource.Resolve("st.toast.blocked", "REASON", BlockingReason());
                 else if (string.IsNullOrWhiteSpace(_settings.JoinTarget)) why = LocaleSource.Resolve("st.toast.join.noTarget");
                 else if ((GameManager.instance != null && GameManager.instance.isGameLoading) || _loader.IsLoading) why = LocaleSource.Resolve("st.toast.join.loading");
@@ -612,6 +659,12 @@ namespace SkylineTogether.Session
             catch (ArgumentException ex)
             {
                 Notify(ex.Message, ProgressState.Warning);
+                return;
+            }
+            if (DirectOnly && endpoint.SteamId != 0)
+            {
+                // direct mode dials addresses only (no Steam networking to reach a Steam ID)
+                Notify(LocaleSource.Resolve("st.toast.join.directNeedsAddress"), ProgressState.Warning);
                 return;
             }
             if (endpoint.SteamId == 0 && !HostLookup.IsLiteral(endpoint.Host, out _))
@@ -660,12 +713,20 @@ namespace SkylineTogether.Session
         {
             _lastEndpoint = endpoint;
             _lastPassword = password ?? "";
-            SteamSocketsTransport transport = null;
+            ITransport transport = null;
             try
             {
                 Features.Registry.RearmAll();
                 _clientHost = endpoint.SteamId;
-                transport = new SteamSocketsTransport(endpoint.SteamId != 0 ? TransportKind.SteamP2P : TransportKind.SteamIp, _log);
+                if (DirectOnly)
+                {
+                    if (endpoint.SteamId != 0) throw new ArgumentException("direct mode joins by IP address and port, not by Steam ID");
+                    transport = new DirectTransport(_log, _clock, PlayerName);
+                }
+                else
+                {
+                    transport = NewSteamTransport(endpoint.SteamId != 0 ? TransportKind.SteamP2P : TransportKind.SteamIp, _log);
+                }
                 bool joinAnyway = _joinAnywayTarget != null && string.Equals(_joinAnywayTarget, endpoint.ToString(), StringComparison.Ordinal);
                 var client = new SessionClient(transport, _info, _loader, new ClientOptions
                 {
@@ -907,7 +968,8 @@ namespace SkylineTogether.Session
         {
             _settings.FriendsOnly = on;
             _settings.ApplyAndSave();
-            if (Host != null) Host.Options.JoinPolicy = on ? JoinPolicy.FriendsAndInvited : JoinPolicy.Open;
+            // direct mode has no Steam friends: the policy stays open (the password admits players)
+            if (Host != null) Host.Options.JoinPolicy = on && !DirectOnly ? JoinPolicy.FriendsAndInvited : JoinPolicy.Open;
         }
 
         /// <summary>New players join as viewers (applies at once to a running session; players seen before keep their role).</summary>
@@ -993,7 +1055,7 @@ namespace SkylineTogether.Session
             long start = timed ? Perf.Start() : 0;
             try
             {
-                SteamSocketsTransport.PumpDeferredCloses(); // listen sockets of ended sessions linger briefly
+                if (!DirectOnly) PumpSteamDeferredCloses(); // Steam listen sockets of ended sessions linger briefly
                 Host?.Tick();
                 if (Client != null)
                 {

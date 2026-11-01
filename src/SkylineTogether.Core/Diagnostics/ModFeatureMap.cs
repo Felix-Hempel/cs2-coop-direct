@@ -85,6 +85,7 @@ namespace SkylineTogether.Core.Diagnostics
             ("SkylineTogether.Session.SteamFriendList", F(Invites)),
             ("SkylineTogether.Session.SteamInvites", F(Invites)),
             ("SkylineTogether.Net.SteamConnection", F(Steam)),
+            ("SkylineTogether.Net.SteamFacade", F(Steam)),
             ("SkylineTogether.Net.SteamLanes", F(Steam)),
             ("SkylineTogether.Net.SteamSocketsTransport", F(Steam)),
             ("SkylineTogether.Systems.SpeedAuthoritySystem", F(Speed)),

@@ -23,7 +23,7 @@ namespace SkylineTogether.Settings
         /// <summary>Every option shown on the Options page (texts: <c>st.options.&lt;name&gt;.label/.desc</c>).</summary>
         public static readonly string[] OptionNames =
         {
-            nameof(PlayerName), nameof(ShowBuildingPreviews), nameof(SessionName), nameof(HostPassword), nameof(MaxPlayers), nameof(RequireSameMods), nameof(RequireSameAssets), nameof(AllowJoinWithDifferentMods), nameof(FriendsOnly), nameof(NewPlayersJoinAsViewer), nameof(EnforcePlacementChecks), nameof(AllowDirectConnections),
+            nameof(PlayerName), nameof(ShowBuildingPreviews), nameof(DirectOnly), nameof(SessionName), nameof(HostPassword), nameof(MaxPlayers), nameof(RequireSameMods), nameof(RequireSameAssets), nameof(AllowJoinWithDifferentMods), nameof(FriendsOnly), nameof(NewPlayersJoinAsViewer), nameof(EnforcePlacementChecks), nameof(AllowDirectConnections),
             nameof(DirectPort), nameof(JoinTarget), nameof(JoinPassword), nameof(HostButton), nameof(JoinButton), nameof(LeaveButton), nameof(ShowNetworkHud),
             nameof(WriteDiagnosticsButton),
         };
@@ -46,6 +46,14 @@ namespace SkylineTogether.Settings
         [SettingsUISection(MainSection, PlayerGroup)]
         [SettingsUITextInput]
         public string PlayerName { get; set; }
+
+        /// <summary>
+        /// Fork: host and join over plain TCP (<c>DirectTransport</c>, e.g. in a Tailscale network) without any Steam call:
+        /// no Steam ID, persona, relay network, lobby, invites or friends list, and the Steam self-tests are skipped. A
+        /// session password is required to host. Read at start (Steam relay, invites): restart the game after changing it.
+        /// </summary>
+        [SettingsUISection(MainSection, PlayerGroup)]
+        public bool DirectOnly { get; set; }
 
         /// <summary>Draw the other players' live tool previews (roads being drawn, buildings at their cursor, ...).</summary>
         [SettingsUISection(MainSection, PlayerGroup)]
@@ -197,6 +205,7 @@ namespace SkylineTogether.Settings
             JoinPassword = "";
             ShowNetworkHud = false;
             ShowBuildingPreviews = true;
+            DirectOnly = true;
         }
     }
 }

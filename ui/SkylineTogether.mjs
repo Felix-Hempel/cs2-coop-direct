@@ -45,6 +45,9 @@ const replayBinding = bind("replay", "{}");
 // overlayAvailable: false when the Steam overlay cannot open (then the overlay button hides; null = unknown).
 const friendsBinding = bind("friends", "");
 const overlayBinding = bind("overlayAvailable", null);
+// fork: direct mode (SessionUISystem "directOnly", true when the mod never calls Steam). The panel then hides the Steam
+// ID, the invites and "Friends and invited only", never says Steam is missing, and asks for the host's IP:port.
+const directBinding = bind("directOnly", false);
 
 function parse(json) {
   try {
@@ -70,6 +73,31 @@ function useJson(binding) {
   const value = parse(raw);
   parsed.set(binding, { raw: raw, value: value });
   return value;
+}
+
+// The panel state, with directOnly (the separate binding) merged in: every component below reads s.directOnly. Direct
+// mode also forces canInvite and friendsOnly off. The merged object is cached per state value (read-only, like useJson's).
+let directState = null;
+let directMerged = null;
+function useSessionState() {
+  const s = useJson(stateBinding);
+  let direct = false;
+  try {
+    direct = api.useValue(directBinding) === true;
+  } catch (e) {
+    direct = false;
+  }
+  if (!direct) return s;
+  if (directState !== s || directMerged === null) {
+    directState = s;
+    directMerged = Object.assign({}, s, { directOnly: true, canInvite: false, friendsOnly: false });
+  }
+  return directMerged;
+}
+
+// Steam is needed and missing (never in direct mode)
+function steamMissing(s) {
+  return s.steam === false && !s.directOnly;
 }
 
 // null while the friends binding is missing or not an array
@@ -166,6 +194,7 @@ const EN = {
   "st.ui.steam.missing.title": "Steam isn't available",
   "st.ui.steam.missing.text": "Skyline Together needs the Steam version of the game, with Steam running and logged in.",
   "st.ui.steam.ok": "Steam connected",
+  "st.ui.direct.mode": "Direct mode (no Steam)",
   "st.ui.tab.host": "Host",
   "st.ui.tab.join": "Join",
   "st.ui.tab.solo": "Solo test",
@@ -178,6 +207,7 @@ const EN = {
   "st.ui.host.title": "Host this city",
   "st.ui.host.subtitle": "Open the city you are playing to your friends",
   "st.ui.host.intro": "Open the city you are playing to your friends. They join with your Steam ID or a Steam invite.",
+  "st.ui.host.introDirect": "Open the city you are playing to your friends. They join with your IP address, the port and the session password.",
   "st.ui.host.sessionName": "Session name",
   "st.ui.host.sessionNamePlaceholder": "Default: {NAME}'s city",
   "st.ui.host.sessionNameHint": "What your friends see while they join.",
@@ -224,9 +254,12 @@ const EN = {
   "st.ui.join.title": "Join a friend",
   "st.ui.join.subtitle": "Play together in a friend's city",
   "st.ui.join.intro": "Enter the host's Steam ID (shown in their Skyline Together panel) or IP address and port.",
+  "st.ui.join.introDirect": "Enter the host's IP address and port (for example their Tailscale address) and the session password.",
   "st.ui.join.target": "Host's Steam ID or IP address",
+  "st.ui.join.targetDirect": "Host's IP address and port",
   "st.ui.join.targetShort": "Host",
   "st.ui.join.targetPlaceholder": "Steam ID or IP:port",
+  "st.ui.join.targetPlaceholderDirect": "IP:port",
   "st.ui.join.badSteamId": "A Steam ID has 17 digits. Copy it from the host's Skyline Together panel.",
   "st.ui.join.badPort": "The port after the colon must be a number from 1 to 65535.",
   "st.ui.join.badTarget": "Enter the host's Steam ID (17 digits) or an address like 203.0.113.7:27015.",
@@ -360,6 +393,7 @@ const EN = {
   "st.ui.invite.copied": "Copied",
   "st.ui.invite.steam": "Invite through Steam",
   "st.ui.invite.direct": "Direct connection: your public IP address and port {PORT}.",
+  "st.ui.invite.directOnly": "Players join with your IP address (for example your Tailscale address) and port {PORT}, and the session password.",
   "st.ui.friends.title": "Invite Steam friends",
   "st.ui.friends.search": "Search friends",
   "st.ui.friends.invite": "Invite",
@@ -1524,7 +1558,16 @@ function SessionHeader(p) {
     !hosting ? h(Hint, { style: { padding: "0 6rem 6rem 6rem" } }, t("st.ui.session.speed", { SPEED: speedText(s) })) : null,
     !hosting && s.localRole === "cohost" ? h(Hint, { style: { padding: "0 6rem 6rem 6rem" } }, t("st.ui.session.cohost")) : null,
     s.hold ? h(Notice, null, str(s.status) || t("st.ui.session.holding")) : null,
-    h(
+    // direct mode: no Steam ID and no invites, only how players reach the host
+    s.directOnly
+      ? hosting && num(s.directPort, 0) > 0
+        ? h(
+            "div",
+            { style: { margin: "4rem 6rem 2rem 6rem", padding: "8rem 10rem", borderRadius: T.radiusInner, backgroundColor: "rgba(0, 0, 0, 0.2)" } },
+            h(Hint, { style: { fontSize: FS.xs } }, t("st.ui.invite.directOnly", { PORT: num(s.directPort, 0) }))
+          )
+        : null
+      : h(
       "div",
       { style: { margin: "4rem 6rem 2rem 6rem", padding: "8rem 10rem", borderRadius: T.radiusInner, backgroundColor: "rgba(0, 0, 0, 0.2)" } },
       h(Label, null, hosting ? t("st.ui.invite.steamId") : t("st.ui.invite.hostSteamId")),
@@ -2088,34 +2131,37 @@ function HostOptions(p) {
     h(GameRow, { label: t("st.ui.host.requireMods"), hint: t("st.ui.host.requireModsHint") }, h(Check, { checked: o.requireMods, onChange: o.setMods })),
     h(GameRow, { label: t("st.ui.host.requireAssets"), hint: t("st.ui.host.requireAssetsHint") }, h(Check, { checked: o.requireAssets, onChange: o.setAssets })),
     h(GameRow, { label: t("st.ui.host.allowModOverride"), hint: t("st.ui.host.allowModOverrideHint") }, h(Check, { checked: o.allowOverride, disabled: !o.overrideApplies, onChange: o.setOverride })),
-    h(GameRow, { label: t("st.ui.host.friendsOnly"), hint: t("st.ui.host.friendsOnlyHint") }, h(Check, { checked: friendsOnly, onChange: function (v) { setFriendsOnly(v); send("setFriendsOnly", !!v); } })),
+    s.directOnly ? null : h(GameRow, { label: t("st.ui.host.friendsOnly"), hint: t("st.ui.host.friendsOnlyHint") }, h(Check, { checked: friendsOnly, onChange: function (v) { setFriendsOnly(v); send("setFriendsOnly", !!v); } })),
     h(GameRow, { label: t("st.ui.host.newPlayersViewer"), hint: t("st.ui.host.newPlayersViewerHint") }, h(Check, { checked: newViewer, onChange: function (v) { setNewViewer(v); send("setNewPlayersViewer", !!v); } })),
-    h(
-      GameRow,
-      { label: t("st.ui.host.allowDirect"), hint: directOk ? t("st.ui.host.allowDirectHint") + (p.live ? " " + t("st.ui.host.allowDirectNextTime") : "") : t("st.ui.host.allowDirectNeedsPassword") },
-      h(Check, { checked: o.allowDirect && directOk, disabled: !directOk, onChange: o.setDirect })
-    ),
-    o.allowDirect && directOk
+    // direct mode: direct connections are the only way in, so there is no switch, only the port
+    s.directOnly
+      ? null
+      : h(
+          GameRow,
+          { label: t("st.ui.host.allowDirect"), hint: directOk ? t("st.ui.host.allowDirectHint") + (p.live ? " " + t("st.ui.host.allowDirectNextTime") : "") : t("st.ui.host.allowDirectNeedsPassword") },
+          h(Check, { checked: o.allowDirect && directOk, disabled: !directOk, onChange: o.setDirect })
+        ),
+    s.directOnly || (o.allowDirect && directOk)
       ? h(
           GameRow,
           { label: t("st.ui.host.port"), hint: o.portInvalid ? null : t("st.ui.host.portHint") },
           h(Field, { value: o.port, onChange: o.setPort, onBlur: function () { o.save({}); }, onEnter: function () { o.save({}); }, invalid: o.portInvalid, ids: true, max: 5, style: { width: "100rem", textAlign: "center" }, title: t("st.ui.host.port"), description: t("st.ui.host.portHint") })
         )
       : null,
-    o.allowDirect && directOk && o.portInvalid ? h(FieldError, { style: { padding: "0 6rem 6rem 6rem" } }, t("st.ui.host.portInvalid")) : null,
+    (s.directOnly || (o.allowDirect && directOk)) && o.portInvalid ? h(FieldError, { style: { padding: "0 6rem 6rem 6rem" } }, t("st.ui.host.portInvalid")) : null,
     h(BanList, { state: s })
   );
 }
 
 // why the Host button is disabled, or "" (Steam and blocked reasons have their own notice above)
 function hostReason(s) {
-  if (s.canHost || s.steam === false || str(s.blocked)) return "";
+  if (s.canHost || steamMissing(s) || str(s.blocked)) return "";
   return s.inGame === false ? t("st.ui.host.needCity") : t("st.ui.host.unavailable");
 }
 
 // why the Join button is disabled although the address is fine, or ""
 function joinReason(s) {
-  if (s.canJoin || s.steam === false || str(s.blocked)) return "";
+  if (s.canJoin || steamMissing(s) || str(s.blocked)) return "";
   return t("st.ui.join.unavailable");
 }
 
@@ -2171,7 +2217,7 @@ function GameHostTab(p) {
     h(
       Section,
       { first: true },
-      h(Hint, { style: { padding: "4rem 6rem 4rem 6rem" } }, t("st.ui.host.intro")),
+      h(Hint, { style: { padding: "4rem 6rem 4rem 6rem" } }, t(s.directOnly ? "st.ui.host.introDirect" : "st.ui.host.intro")),
       p.nameField,
       h(GameField, { label: t("st.ui.host.sessionName"), hint: t("st.ui.host.sessionNameHint") }, h(Field, { value: session, onChange: setSession, onBlur: function () { save(); }, placeholder: t("st.ui.host.sessionNamePlaceholder", { NAME: p.name || str(s.playerName) || "…" }), title: t("st.ui.host.sessionName"), max: 64 })),
       h(
@@ -2193,6 +2239,7 @@ function GameHostTab(p) {
 
 function GameJoinTab(p) {
   const s = p.state;
+  const direct = !!s.directOnly;
   const [target, setTarget] = React.useState(str(s.joinTarget));
   const [password, setPassword] = React.useState("");
   const problem = targetProblem(target);
@@ -2209,12 +2256,12 @@ function GameJoinTab(p) {
     h(
       Section,
       { first: true },
-      h(Hint, { style: { padding: "4rem 6rem 4rem 6rem" } }, t("st.ui.join.intro")),
+      h(Hint, { style: { padding: "4rem 6rem 4rem 6rem" } }, t(direct ? "st.ui.join.introDirect" : "st.ui.join.intro")),
       p.nameField,
       h(
         GameField,
-        { label: t("st.ui.join.target"), hint: problem ? null : t("st.ui.join.findId") },
-        h(Field, { value: target, onChange: function (v) { setTarget(normalizeTarget(v)); }, onEnter: join, invalid: !!problem, ids: true, placeholder: t("st.ui.join.targetPlaceholder"), title: t("st.ui.join.target"), description: t("st.ui.join.intro"), max: 96 }),
+        { label: t(direct ? "st.ui.join.targetDirect" : "st.ui.join.target"), hint: problem || direct ? null : t("st.ui.join.findId") },
+        h(Field, { value: target, onChange: function (v) { setTarget(normalizeTarget(v)); }, onEnter: join, invalid: !!problem, ids: true, placeholder: t(direct ? "st.ui.join.targetPlaceholderDirect" : "st.ui.join.targetPlaceholder"), title: t(direct ? "st.ui.join.targetDirect" : "st.ui.join.target"), description: t(direct ? "st.ui.join.introDirect" : "st.ui.join.intro"), max: 96 }),
         problem ? h(FieldError, { style: { marginTop: "4rem" } }, problem) : null
       ),
       h(GameField, { label: t("st.ui.join.password"), hint: t("st.ui.join.passwordHint") }, h(Field, { value: password, onChange: setPassword, onEnter: join, password: true, placeholder: t("st.ui.join.passwordPlaceholder"), title: t("st.ui.join.password"), max: 64 }))
@@ -2225,7 +2272,7 @@ function GameJoinTab(p) {
       h(Notice, null, t("st.ui.join.replaceWarning")),
       reason ? h(Hint, { style: { padding: "2rem 6rem 2rem 6rem" } }, reason) : null,
       h("div", { style: { padding: "4rem 6rem" } }, h(Btn, { kind: "primary", disabled: !canJoin, onClick: join, style: { width: "100%" } }, t("st.ui.join.start"))),
-      h(Hint, { style: { padding: "4rem 6rem 4rem 6rem", fontSize: FS.xs } }, t("st.ui.join.steamHint"))
+      direct ? null : h(Hint, { style: { padding: "4rem 6rem 4rem 6rem", fontSize: FS.xs } }, t("st.ui.join.steamHint"))
     )
   );
 }
@@ -2256,7 +2303,7 @@ function GameLobby(p) {
     "div",
     null,
     h(Tabs, { value: tab, onChange: function (id) { setStore({ gameTab: id }); }, tabs: [{ id: "host", label: t("st.ui.tab.host") }, { id: "join", label: t("st.ui.tab.join") }, { id: "solo", label: t("st.ui.tab.solo") }] }),
-    s.steam === false ? h(SteamMissing, { style: { margin: "8rem" } }) : null,
+    steamMissing(s) ? h(SteamMissing, { style: { margin: "8rem" } }) : null,
     str(s.blocked) ? h(Notice, { color: T.bad, style: { margin: "8rem" } }, t("st.ui.blocked", { REASON: str(s.blocked) })) : null,
     h(ConflictWarning, { state: s }),
     tab === "host" ? h(GameHostTab, { state: s, name: name, nameField: nameField }) : tab === "join" ? h(GameJoinTab, { state: s, name: name, nameField: nameField }) : h(SoloTestSection, { inGame: true }),
@@ -2418,7 +2465,8 @@ function MenuJoinPage(p) {
   const [password, setPassword] = React.useState("");
   const [hoverInfo, setHoverInfo] = React.useState(null);
   const problem = targetProblem(target);
-  const canJoin = !!s.canJoin && s.steam !== false && target.trim().length > 0 && !problem;
+  const canJoin = !!s.canJoin && !steamMissing(s) && target.trim().length > 0 && !problem;
+  const direct = !!s.directOnly;
   const reason = target.trim().length > 0 && !problem ? joinReason(s) : "";
   const saveName = function () { send("saveHostSettings", name, str(s.sessionNameSetting), str(s.keepPassword) || KEEP_PASSWORD); };
   const join = function () {
@@ -2426,7 +2474,7 @@ function MenuJoinPage(p) {
     send("saveHostSettings", name, str(s.sessionNameSetting), str(s.keepPassword) || KEEP_PASSWORD);
     send("join", target.trim(), password);
   };
-  const info = hoverInfo || infoBlock(t("st.ui.join.title"), t("st.ui.join.info"), h("div", { style: { marginTop: "16rem", color: T.menuText2, lineHeight: 1.4 } }, t("st.ui.join.steamHint")));
+  const info = hoverInfo || infoBlock(t("st.ui.join.title"), t("st.ui.join.info"), direct ? null : h("div", { style: { marginTop: "16rem", color: T.menuText2, lineHeight: 1.4 } }, t("st.ui.join.steamHint")));
   return h(
     MenuPage,
     {
@@ -2438,10 +2486,10 @@ function MenuJoinPage(p) {
         h(Btn, { key: "join", kind: "menuPrimary", disabled: !canJoin, onClick: join, style: { minWidth: "220rem" } }, t("st.ui.join.start")),
       ],
     },
-    s.steam === false ? h(MenuNotice, { color: T.bad }, h("div", { style: { fontWeight: "bold" } }, t("st.ui.steam.missing.title")), t("st.ui.steam.missing.text")) : null,
-    h(MenuText, { style: { color: T.menuText2, fontSize: FS.m } }, t("st.ui.join.intro")),
+    steamMissing(s) ? h(MenuNotice, { color: T.bad }, h("div", { style: { fontWeight: "bold" } }, t("st.ui.steam.missing.title")), t("st.ui.steam.missing.text")) : null,
+    h(MenuText, { style: { color: T.menuText2, fontSize: FS.m } }, t(direct ? "st.ui.join.introDirect" : "st.ui.join.intro")),
     h(MenuRow, { label: t("st.ui.profile.name"), info: t("st.ui.profile.nameHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: name, onChange: setName, onBlur: saveName, placeholder: t("st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 })),
-    h(MenuRow, { label: t("st.ui.join.targetShort"), info: t("st.ui.join.intro") + " " + t("st.ui.join.findId"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: target, onChange: function (v) { setTarget(normalizeTarget(v)); }, onEnter: join, invalid: !!problem, ids: true, placeholder: t("st.ui.join.targetPlaceholder"), title: t("st.ui.join.target"), description: t("st.ui.join.intro"), max: 96 })),
+    h(MenuRow, { label: t("st.ui.join.targetShort"), info: direct ? t("st.ui.join.introDirect") : t("st.ui.join.intro") + " " + t("st.ui.join.findId"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: target, onChange: function (v) { setTarget(normalizeTarget(v)); }, onEnter: join, invalid: !!problem, ids: true, placeholder: t(direct ? "st.ui.join.targetPlaceholderDirect" : "st.ui.join.targetPlaceholder"), title: t(direct ? "st.ui.join.targetDirect" : "st.ui.join.target"), description: t(direct ? "st.ui.join.introDirect" : "st.ui.join.intro"), max: 96 })),
     problem ? h(FieldError, { menu: true, style: { padding: "0 16rem 8rem 16rem" } }, problem) : null,
     h(MenuRow, { label: t("st.ui.join.password"), info: t("st.ui.join.passwordHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: password, onChange: setPassword, onEnter: join, password: true, placeholder: t("st.ui.join.passwordPlaceholder"), title: t("st.ui.join.password"), max: 64 })),
     h(MenuNotice, { icon: G.info, color: T.accent }, t("st.ui.join.replaceWarning"))
@@ -2484,7 +2532,7 @@ function MenuHostPage(p) {
         h(Btn, { key: "host", kind: "menuPrimary", disabled: !inGame || !s.canHost, onClick: function () { save(); send("host"); }, style: { minWidth: "220rem" } }, t("st.ui.host.start")),
       ],
     },
-    s.steam === false ? h(MenuNotice, { color: T.bad }, h("div", { style: { fontWeight: "bold" } }, t("st.ui.steam.missing.title")), t("st.ui.steam.missing.text")) : null,
+    steamMissing(s) ? h(MenuNotice, { color: T.bad }, h("div", { style: { fontWeight: "bold" } }, t("st.ui.steam.missing.title")), t("st.ui.steam.missing.text")) : null,
     !inGame
       ? h(
           "div",
@@ -2514,20 +2562,24 @@ function MenuHostPage(p) {
       { label: t("st.ui.host.allowModOverride"), info: t("st.ui.host.allowModOverrideHint"), onInfo: setHoverInfo, onClick: o.overrideApplies ? function () { o.setOverride(!o.allowOverride); } : undefined },
       h(Check, { menu: true, checked: o.allowOverride, disabled: !o.overrideApplies, onChange: o.setOverride })
     ),
-    h(MenuRow, { label: t("st.ui.host.friendsOnly"), info: t("st.ui.host.friendsOnlyHint"), onInfo: setHoverInfo, onClick: function () { setFriendsOnly(!friendsOnly); send("setFriendsOnly", !friendsOnly); } },
-      h(Check, { menu: true, checked: friendsOnly, onChange: function (v) { setFriendsOnly(v); send("setFriendsOnly", !!v); } })),
+    s.directOnly
+      ? null
+      : h(MenuRow, { label: t("st.ui.host.friendsOnly"), info: t("st.ui.host.friendsOnlyHint"), onInfo: setHoverInfo, onClick: function () { setFriendsOnly(!friendsOnly); send("setFriendsOnly", !friendsOnly); } },
+          h(Check, { menu: true, checked: friendsOnly, onChange: function (v) { setFriendsOnly(v); send("setFriendsOnly", !!v); } })),
     h(MenuRow, { label: t("st.ui.host.newPlayersViewer"), info: t("st.ui.host.newPlayersViewerHint"), onInfo: setHoverInfo, onClick: function () { setNewViewer(!newViewer); send("setNewPlayersViewer", !newViewer); } },
       h(Check, { menu: true, checked: newViewer, onChange: function (v) { setNewViewer(v); send("setNewPlayersViewer", !!v); } })),
-    h(
-      MenuRow,
-      { label: t("st.ui.host.allowDirect"), info: directOk ? t("st.ui.host.allowDirectHint") : t("st.ui.host.allowDirectNeedsPassword"), onInfo: setHoverInfo, onClick: directOk ? function () { o.setDirect(!o.allowDirect); } : undefined },
-      h(Check, { menu: true, checked: o.allowDirect && directOk, disabled: !directOk, onChange: o.setDirect })
-    ),
+    s.directOnly
+      ? null
+      : h(
+          MenuRow,
+          { label: t("st.ui.host.allowDirect"), info: directOk ? t("st.ui.host.allowDirectHint") : t("st.ui.host.allowDirectNeedsPassword"), onInfo: setHoverInfo, onClick: directOk ? function () { o.setDirect(!o.allowDirect); } : undefined },
+          h(Check, { menu: true, checked: o.allowDirect && directOk, disabled: !directOk, onChange: o.setDirect })
+        ),
     !directOk ? h("div", { style: { padding: "0 16rem 8rem 16rem", color: T.menuText2, fontSize: FS.m } }, t("st.ui.host.allowDirectNeedsPassword")) : null,
-    o.allowDirect && directOk
+    s.directOnly || (o.allowDirect && directOk)
       ? h(MenuRow, { label: t("st.ui.host.port"), info: t("st.ui.host.portHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: o.port, onChange: o.setPort, onBlur: function () { o.save({}); }, onEnter: function () { o.save({}); }, invalid: o.portInvalid, ids: true, max: 5, title: t("st.ui.host.port"), description: t("st.ui.host.portHint"), style: { flex: "0 1 140rem", textAlign: "center" } }))
       : null,
-    o.allowDirect && directOk && o.portInvalid ? h(FieldError, { menu: true, style: { padding: "0 16rem 8rem 16rem" } }, t("st.ui.host.portInvalid")) : null,
+    (s.directOnly || (o.allowDirect && directOk)) && o.portInvalid ? h(FieldError, { menu: true, style: { padding: "0 16rem 8rem 16rem" } }, t("st.ui.host.portInvalid")) : null,
     h(BanList, { state: s, menu: true })
   );
 }
@@ -2595,8 +2647,8 @@ function MenuNav(p) {
       h(
         "div",
         { style: merge(S.row, { color: T.menuText2, fontSize: FS.s, marginBottom: "6rem" }) },
-        h(Dot, { color: s.steam === false ? T.bad : T.good, size: 8 }),
-        s.steam === false ? t("st.ui.steam.missing.title") : t("st.ui.steam.ok")
+        h(Dot, { color: steamMissing(s) ? T.bad : T.good, size: 8 }),
+        s.directOnly ? t("st.ui.direct.mode") : steamMissing(s) ? t("st.ui.steam.missing.title") : t("st.ui.steam.ok")
       ),
       str(s.blocked) ? h("div", { style: { color: T.badText, fontSize: FS.xs, lineHeight: 1.35, marginBottom: "6rem" } }, t("st.ui.blocked", { REASON: str(s.blocked) })) : null,
       str(s.conflictMod) ? h("div", { style: { color: T.badText, fontSize: FS.xs, lineHeight: 1.35, marginBottom: "6rem" } }, t("st.ui.conflictMod", { MOD: str(s.conflictMod) })) : null,
@@ -3400,7 +3452,7 @@ function tooltipNode(s) {
 // The round button in the game's top-left button row (moduleRegistry "GameTopLeft").
 function TopLeftButton() {
   useI18n();
-  const s = useJson(stateBinding);
+  const s = useSessionState();
   const st = useStore();
   const panel = useGamePanel();
   React.useEffect(function () {
@@ -3442,7 +3494,7 @@ function FallbackToggle(p) {
 
 function GameRoot() {
   useI18n();
-  const s = useJson(stateBinding);
+  const s = useSessionState();
   const st = useStore();
   const panel = useGamePanel();
   const photo = panel === "PhotoMode";
@@ -3483,7 +3535,7 @@ function GameRoot() {
           h(
             PanelShell,
             { title: panelTitle(s), status: statusColor(mode), onClose: close, width: "420rem", maxHeight: "78vh", footer: h("div", null, live ? h(LeaveButton, { state: s }) : null, h(BuildLine, { state: s, style: live ? null : { marginTop: 0 } })) },
-            s.steam === false && mode === "None" ? h(SteamMissing, { style: { margin: "8rem" } }) : h(PanelContent, { state: s })
+            steamMissing(s) && mode === "None" ? h(SteamMissing, { style: { margin: "8rem" } }) : h(PanelContent, { state: s })
           ),
           showInvites ? h(InvitePopover, null) : null
         )
@@ -3495,7 +3547,7 @@ function GameRoot() {
 
 function MenuRoot() {
   useI18n();
-  const s = useJson(stateBinding);
+  const s = useSessionState();
   const st = useStore();
   const [noMenuEntry, setNoMenuEntry] = React.useState(false);
   React.useEffect(function () {
@@ -3579,7 +3631,7 @@ function installMenuScreen(moduleRegistry) {
       const render = function SkylineTogetherMainMenuScreen(props, ref) {
         useI18n();
         const st = useStore();
-        const s = useJson(stateBinding);
+        const s = useSessionState();
         React.useEffect(function () {
           return function () {
             // the title screen went away (a city loads, another vanilla screen opened): start on the main menu next time

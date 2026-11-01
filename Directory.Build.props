@@ -9,7 +9,7 @@
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Cities Skylines II</GameDir>
     <GameManagedPath Condition="'$(GameManagedPath)' == ''">$(GameDir)\Cities2_Data\Managed</GameManagedPath>
     <CS2UserDataPath Condition="'$(CS2UserDataPath)' == ''">$(USERPROFILE)\AppData\LocalLow\Colossal Order\Cities Skylines II</CS2UserDataPath>
-    <ModDeployDir Condition="'$(ModDeployDir)' == ''">$(CS2UserDataPath)\Mods\SkylineTogether</ModDeployDir>
+    <ModDeployDir Condition="'$(ModDeployDir)' == ''">$(CS2UserDataPath)\Mods\SkylineTogetherDirect</ModDeployDir>
     <LangVersion>10.0</LangVersion>
     <Deterministic>true</Deterministic>
     <!-- the builder's checkout path never reaches a shipped file: deterministic source paths map the repository root to
@@ -30,7 +30,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Version>0.3.0</Version>
     <Company>Skyline Together</Company>
-    <Product>Skyline Together</Product>
+    <Product>Skyline Together Direct</Product>
     <!-- never restore or reference NuGet packages implicitly -->
     <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
   </PropertyGroup>

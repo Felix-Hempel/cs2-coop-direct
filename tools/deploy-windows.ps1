@@ -107,7 +107,7 @@ if ($SkipFirewall) {
         $portFilter = $rule | Get-NetFirewallPortFilter
         $addrFilter = $rule | Get-NetFirewallAddressFilter
         $portOk = (@($portFilter.LocalPort) -contains [string]$Port) -and ($portFilter.Protocol -eq 'TCP')
-        $addrOk = (@($addrFilter.RemoteAddress) -contains '100.64.0.0/10') -or (@($addrFilter.RemoteAddress) -contains '100.64.0.0-100.127.255.255')
+        $addrOk = (@($addrFilter.RemoteAddress) -contains '100.64.0.0/10') -or (@($addrFilter.RemoteAddress) -contains '100.64.0.0-100.127.255.255') -or (@($addrFilter.RemoteAddress) -contains '100.64.0.0/255.192.0.0')
         if ($portOk -and $addrOk -and ([string]$rule.Enabled -eq 'True')) {
             Write-Host ('ok: rule {0} exists (TCP {1} from 100.64.0.0/10, enabled)' -f $RuleName, $Port)
         } else {

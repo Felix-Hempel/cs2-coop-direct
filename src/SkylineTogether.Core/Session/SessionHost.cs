@@ -2017,6 +2017,15 @@ namespace SkylineTogether.Core.Session
             }
         }
 
+        /// <summary>"host" or "joiner" when exactly that side's DLC and content list is empty and the other's is not, else null.</summary>
+        private static string DlcUnavailableSide(HandshakeManifest host, HandshakeManifest joiner)
+        {
+            bool hostEmpty = host.Content == null || host.Content.Count == 0;
+            bool joinerEmpty = joiner.Content == null || joiner.Content.Count == 0;
+            if (hostEmpty == joinerEmpty) return null;
+            return hostEmpty ? "host" : "joiner";
+        }
+
         private void TryAdmit(Peer p)
         {
             if (p.Hello == null || p.Manifest == null || p.Admitted || p.AwaitingPassword || !p.Authenticated) return;
@@ -2044,12 +2053,17 @@ namespace SkylineTogether.Core.Session
             // only when the host allows it; everything before (bans, policy, password, build, game) and after (DLC is
             // compared first inside, capacity below) is unaffected
             bool joinAnyway = (p.Hello.JoinFlags & HelloJoinFlags.AcceptModMismatch) != 0;
+            // fork: a direct peer's game (no Steam) may fail to list its DLC (PlatformManager); an empty list on one side
+            // only would refuse a player who has the same DLC, so the DLC comparison is skipped for this join instead
+            string dlcUnavailable = p.Direct && !p.SteamAuthenticated ? DlcUnavailableSide(mineManifest, theirsManifest) : null;
+            if (dlcUnavailable != null) _log.Warn(LogCategory.Join, "DLC list unavailable on " + dlcUnavailable + "; DLC check skipped");
             CompatibilityResult compat = CompatibilityCheck.Compare(mineManifest, theirsManifest, new CompatibilityOptions
             {
                 RequireSameMods = _options.RequireSameMods,
                 RequireSameAssets = _options.RequireSameAssets,
                 AllowOverride = _options.AllowModMismatchOverride,
                 JoinAnyway = joinAnyway,
+                SkipContent = dlcUnavailable != null,
             });
             if (compat.Refusal != null)
             {

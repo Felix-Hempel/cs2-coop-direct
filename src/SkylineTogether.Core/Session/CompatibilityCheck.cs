@@ -25,6 +25,12 @@ namespace SkylineTogether.Core.Session
         /// lacks and the old multiplayer mod still refuse.
         /// </summary>
         public bool JoinAnyway;
+
+        /// <summary>
+        /// Fork: leave DLC and content packs out of the comparison (neither refused nor listed), because one side could
+        /// not list them (<c>SessionHost</c> logs the warning). Everything else is compared as usual.
+        /// </summary>
+        public bool SkipContent;
     }
 
     /// <summary>The outcome of <see cref="CompatibilityCheck.Compare"/>.</summary>
@@ -128,7 +134,7 @@ namespace SkylineTogether.Core.Session
             }
 
             // DLC and content packs first: lacking the host's is never overridable
-            if (Differs(host.Digests.Content, client.Digests.Content) && host.Content != null && client.Content != null)
+            if (!options.SkipContent && Differs(host.Digests.Content, client.Digests.Content) && host.Content != null && client.Content != null)
             {
                 Diff(host.Content, client.Content, false, out List<ModEntry> missing, out List<ModEntry> extra, out _);
                 if (missing.Count > 0)

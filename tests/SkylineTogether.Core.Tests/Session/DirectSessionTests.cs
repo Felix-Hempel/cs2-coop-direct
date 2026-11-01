@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using SkylineTogether.Core.Protocol;
 using SkylineTogether.Core.Session;
@@ -14,10 +15,11 @@ namespace SkylineTogether.Core.Tests.Session
     /// </summary>
     public sealed class DirectSessionTests
     {
-        private static SessionClient AddDirect(SessionRig rig, string address, string name, string password)
+        private static SessionClient AddDirect(SessionRig rig, string address, string name, string password, Action<FakeInfo> tweak = null)
         {
             LoopbackTransport t = rig.HostTransport.CreateClient(new PeerIdentity(0, address, null, true));
             var info = new FakeInfo();
+            tweak?.Invoke(info);
             var loader = new FakeLoader();
             var client = new SessionClient(t, info, loader, new ClientOptions { PlayerName = name, Password = password }, rig.Clock, rig.Log);
             client.Connect(new Endpoint());
@@ -74,6 +76,41 @@ namespace SkylineTogether.Core.Tests.Session
             Assert.Equal(ClientState.Live, a.State, a.EndReason);
             Assert.Equal(ClientState.Live, b.State, b.EndReason);
             Assert.Equal(3, rig.Host.GetPlayers().Count);
+        }
+
+        [Test]
+        public void EmptyDlcListOnOneSideSkipsTheCheckWithWarning()
+        {
+            // the joiner's game could not list its DLC (PlatformManager without Steam): admitted, with a warning
+            var rig = new SessionRig(new HostOptions { HostName = "Hosty", Password = "pw" });
+            SessionClient joiner = AddDirect(rig, "100.64.1.2:51000", "Direct", "pw", i => i.Content.Clear());
+            rig.Run(400);
+            Assert.Equal(ClientState.Live, joiner.State, joiner.EndReason);
+            Assert.True(rig.Log.Contains("DLC list unavailable on joiner; DLC check skipped"), "the skipped check is logged");
+
+            // the same on the host's side
+            var hostRig = new SessionRig(new HostOptions { HostName = "Hosty", Password = "pw" });
+            hostRig.HostInfo.Content.Clear();
+            SessionClient other = AddDirect(hostRig, "100.64.1.3:51000", "Other", "pw");
+            hostRig.Run(400);
+            Assert.Equal(ClientState.Live, other.State, other.EndReason);
+            Assert.True(hostRig.Log.Contains("DLC list unavailable on host; DLC check skipped"), "the skipped check is logged");
+        }
+
+        [Test]
+        public void DifferentNonEmptyDlcListsStillRefuseDirectPeers()
+        {
+            // both sides listed their DLC: a joiner lacking the host's is refused as before (no skip, no warning)
+            var rig = new SessionRig(new HostOptions { HostName = "Hosty", Password = "pw" });
+            SessionClient joiner = AddDirect(rig, "100.64.1.2:51000", "Direct", "pw", i =>
+            {
+                i.Content.Clear();
+                i.Content.Add(new ContentEntry { Id = "1", Name = "Other Pack" });
+            });
+            rig.Run(400);
+            Assert.Equal(ClientEndKind.Refused, joiner.EndKind, joiner.EndReason);
+            Assert.Equal("content", joiner.EndReport?.Kind);
+            Assert.False(rig.Log.Contains("DLC check skipped"), "nothing skipped");
         }
 
         [Test]

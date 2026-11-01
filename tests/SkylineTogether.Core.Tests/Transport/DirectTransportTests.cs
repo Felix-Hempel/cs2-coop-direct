@@ -96,6 +96,29 @@ namespace SkylineTogether.Core.Tests.Transport
         }
 
         [Test]
+        public void LoopbackListenBindsOnlyLoopback()
+        {
+            // the startup self-test must not listen on the network (Windows would ask for a firewall rule at every start)
+            using (DirectTransport host = NewTransport("host"))
+            {
+                host.Listen(new ListenOptions { IpPort = 0, AllowIp = true, BindLoopback = true });
+                IPEndPoint local = host.ListenEndPoint;
+                Assert.True(local != null && IPAddress.IsLoopback(local.Address), "bound to " + local);
+                Assert.Equal(host.BoundPort, local.Port);
+                var sink = new RecordingSink();
+                using (DirectTransport client = NewTransport("client"))
+                {
+                    client.Connect(Local(host.BoundPort));
+                    Assert.True(PollUntil(() => sink.Connected.Count == 1, 3000, () => { host.Poll(sink); client.Poll(new RecordingSink()); }), "127.0.0.1 still connects");
+                }
+            }
+            using (DirectTransport open = ListeningHost())
+            {
+                Assert.False(IPAddress.IsLoopback(open.ListenEndPoint.Address), "without the flag: every interface");
+            }
+        }
+
+        [Test]
         public void SelfTestPassesOnLoopback()
         {
             // P-DIRECT (the in-game self-test of direct mode): every lane both ways over 127.0.0.1

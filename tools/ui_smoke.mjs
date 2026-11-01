@@ -401,6 +401,8 @@ const cases = {
   // fork: direct mode (no Steam). The state still says steam: false and may carry invite values: the panel ignores them
   directLobby: { state: { ...base, mode: "None", steam: false, steamId: "0", canInvite: true, friendsOnly: true, hasPassword: true }, directOnly: true },
   directLobbyNoPassword: { state: { ...base, mode: "None", steam: false, steamId: "0", inGame: false, canHost: false }, directOnly: true },
+  // in a city without a password: the Host button says the password is required (CanHost itself is true)
+  directLobbyNeedsPassword: { state: { ...base, mode: "None", steam: false, steamId: "0", hasPassword: false }, directOnly: true },
   directHosting: { state: { ...base, mode: "Hosting", steam: false, steamId: "0", status: "Hosting", sessionName: "X", directPort: 27015, canInvite: true, inviteSteamId: "76561190000000000", hasPassword: true, players, chat },
     directOnly: true, friends, overlayAvailable: true, net, presence: tags },
   directClient: { state: { ...base, mode: "Client", steam: false, steamId: "0", status: "Connected", sessionName: "X", canInvite: true, inviteSteamId: "76561190000000009", players, chat }, directOnly: true, friends, overlayAvailable: true },
@@ -434,6 +436,8 @@ const EXPECT = {
   lobbyConflictMod: { has: ["The \"CS2 Multiplayer Mod\" (CS2MultiplayerMod 1.0.0.0) is enabled, and two multiplayer mods can't run at the same time. Disable it and restart the game. While it is enabled, nobody can join you and you can't join others."] },
   hostingConflictMod: { has: ["The \"CS2 Multiplayer Mod\" (CS2MultiplayerMod 1.0.0.0) is enabled, and two multiplayer mods can't run at the same time. Disable it and restart the game. While it is enabled, nobody can join you and you can't join others."] },
   hosting: { lacks: ["Two multiplayer mods at once"] },
+  directLobbyNeedsPassword: { has: ["Required in direct mode: players join with this password.", "The TCP port players connect to directly (1024 to 65535)."] },
+  directLobby: { lacks: ["Set a session password to host in direct mode."] },
   // a host that could not prove the password: its own screen with the password field, not the bug-report one
   showcaseMods: { has: [JOIN_ANYWAY, WARNING, "Move It", "Find It", "Anarchy", "Traffic"] },
   endPreparing: { has: ["The host isn't ready yet"], lacks: ["Please wait before joining again"] },
@@ -466,8 +470,11 @@ for (const name of Object.keys(EXPECT)) if (!cases[name]) fail("EXPECT names an 
 const DIRECT = {
   triggers: ["copySteamId", "inviteFriends", "inviteFriend", "openInviteOverlay", "refreshFriends", "setFriendsOnly"],
   lacks: ["Your Steam ID", "Host's Steam ID", "Invite friends", "Invite Steam friends", "Friends and invited only", "Steam isn't available", "Steam connected",
-    "Got a Steam invite? Accept it in Steam and the game joins by itself.", "76561190000000000", "76561190000000009"],
-  placeholders: { has: ["IP:port"], lacks: ["Steam ID or IP:port"] },
+    "Got a Steam invite? Accept it in Steam and the game joins by itself.", "76561190000000000", "76561190000000009",
+    "Leave empty for no password.", "The UDP port players connect to directly (1024 to 65535).",
+    "Set a password first: Steam doesn't check direct connections, so the password is what keeps strangers out."],
+  needPassword: "Set a session password to host in direct mode.",
+  placeholders: { has: ["IP:port"], lacks: ["Steam ID or IP:port", "Default: your Steam name", "Optional"] },
 };
 const passes = [
   { name: "vanilla", ui: vanillaUi, locale: null, forceTrue: false, effects: true },
@@ -537,6 +544,8 @@ for (const pass of passes) {
       if (pass.locale === null) {
         for (const text of DIRECT.lacks) if (caseTexts.has(text)) fail(pass.name + " " + name + ": direct mode shows " + JSON.stringify(text));
         for (const ph of DIRECT.placeholders.lacks) if (casePlaceholders.has(ph)) fail(pass.name + " " + name + ": direct mode has the placeholder " + JSON.stringify(ph));
+        // the Host button's reason (only while no password is typed: the forced passes type "smoke" into every field)
+        if (!pass.forceTrue && c.state.mode === "None" && c.state.inGame !== false && !c.state.hasPassword && !caseTexts.has(DIRECT.needPassword)) fail(pass.name + " " + name + ": direct mode without a password does not say " + JSON.stringify(DIRECT.needPassword));
         if (c.state.mode === "None") for (const ph of DIRECT.placeholders.has) if (!casePlaceholders.has(ph)) fail(pass.name + " " + name + ": direct mode lacks the placeholder " + JSON.stringify(ph));
       }
     }

@@ -13,6 +13,12 @@ namespace SkylineTogether.Core
         public bool AllowIp;
 
         /// <summary>
+        /// Fork (<c>DirectTransport</c>): listen on 127.0.0.1 only instead of every interface (the startup self-test, which
+        /// must never open a port to the network or trigger the Windows firewall dialog).
+        /// </summary>
+        public bool BindLoopback;
+
+        /// <summary>
         /// Maximum simultaneous admitted connections (the session's player limit; <c>SessionHost.SetMaxPlayers</c> raises it
         /// while hosting). Connections still in the handshake are limited separately.
         /// </summary>

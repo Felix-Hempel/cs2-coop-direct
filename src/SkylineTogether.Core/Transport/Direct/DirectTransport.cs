@@ -86,6 +86,12 @@ namespace SkylineTogether.Core.Transport.Direct
 
         internal ILog Log => _log;
 
+        /// <summary>The listen socket's local address and port, or null before <see cref="Listen"/> (tests).</summary>
+        internal IPEndPoint ListenEndPoint
+        {
+            get { lock (_sync) return _listener?.LocalEndPoint as IPEndPoint; }
+        }
+
         /// <summary>
         /// Opens a dual-mode (IPv6 and IPv4) TCP listen socket on <see cref="ListenOptions.IpPort"/>. Throws
         /// <see cref="DirectListenException"/> naming the port when it cannot be bound (usually: already in use).
@@ -100,7 +106,7 @@ namespace SkylineTogether.Core.Transport.Direct
             {
                 if (_disposed) throw new ObjectDisposedException(nameof(DirectTransport));
                 if (_listener != null) throw new InvalidOperationException("DirectTransport already listens on port " + _boundPort.ToString(CultureInfo.InvariantCulture));
-                Socket listener = OpenListener(options.IpPort);
+                Socket listener = OpenListener(options.IpPort, options.BindLoopback);
                 _listener = listener;
                 _boundPort = ((IPEndPoint)listener.LocalEndPoint).Port;
                 _listen = new ListenOptions
@@ -109,7 +115,8 @@ namespace SkylineTogether.Core.Transport.Direct
                     AllowIp = true,
                     MaxConnections = options.MaxConnections,
                     MaxPendingConnections = options.MaxPendingConnections,
-                    MaxPendingPerRemote = options.MaxPendingPerRemote
+                    MaxPendingPerRemote = options.MaxPendingPerRemote,
+                    BindLoopback = options.BindLoopback
                 };
                 _acceptThread = new Thread(() => AcceptLoop(listener)) { IsBackground = true, Name = "SkylineTogether direct accept" };
                 _acceptThread.Start();
@@ -265,22 +272,31 @@ namespace SkylineTogether.Core.Transport.Direct
 
         // ---- internals ----
 
-        private static Socket OpenListener(int port)
+        private static Socket OpenListener(int port, bool loopback)
         {
             Socket socket = null;
             try
             {
-                try
+                if (loopback)
                 {
-                    socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp) { DualMode = true };
-                    Bind(socket, new IPEndPoint(IPAddress.IPv6Any, port));
-                }
-                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressFamilyNotSupported || ex.SocketErrorCode == SocketError.ProtocolNotSupported)
-                {
-                    // no IPv6 on this machine: IPv4 only
-                    socket?.Dispose();
+                    // IPv4 loopback only: reachable from this machine alone (the self-test dials 127.0.0.1)
                     socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    Bind(socket, new IPEndPoint(IPAddress.Any, port));
+                    Bind(socket, new IPEndPoint(IPAddress.Loopback, port));
+                }
+                else
+                {
+                    try
+                    {
+                        socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp) { DualMode = true };
+                        Bind(socket, new IPEndPoint(IPAddress.IPv6Any, port));
+                    }
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressFamilyNotSupported || ex.SocketErrorCode == SocketError.ProtocolNotSupported)
+                    {
+                        // no IPv6 on this machine: IPv4 only
+                        socket?.Dispose();
+                        socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                        Bind(socket, new IPEndPoint(IPAddress.Any, port));
+                    }
                 }
                 socket.Listen(Backlog);
                 Socket result = socket;

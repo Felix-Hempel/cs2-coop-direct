@@ -53,11 +53,7 @@ namespace SkylineTogether
         /// Code that also runs in direct mode asks <see cref="HasInvites"/> first and touches this property only in a
         /// method of its own, so its JIT never loads <see cref="SteamInvites"/> (and with it Steamworks).
         /// </summary>
-        public static SteamInvites Invites
-        {
-            get => (SteamInvites)_invites;
-            private set => _invites = value;
-        }
+        public static SteamInvites Invites => (SteamInvites)_invites;
 
         /// <summary>Steam invites run (false in direct mode); reading it loads no Steam type.</summary>
         public static bool HasInvites => _invites != null;
@@ -118,7 +114,7 @@ namespace SkylineTogether
                 Clock = new FollowerClock(Sessions, log);
                 Movers = new MoverSync(Sessions, log);
                 Toasts = new SessionToasts(Sessions);
-                if (!directOnly) Invites = NewSteamInvites(Sessions, Settings, log);
+                if (!directOnly) _invites = NewSteamInvites(Sessions, Settings, log);
                 Replay = new SkylineTogether.Replay.ReplayController(Sessions, log); // solo testing
                 Compat.ModIntegration.Attach(Sessions, log); // session events and the channel for other mods
             });
@@ -214,7 +210,7 @@ namespace SkylineTogether
         private static void DisposeInvites() => Invites?.Dispose();
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static SteamInvites NewSteamInvites(SessionManager sessions, SkylineTogetherSettings settings, ILog log) => new SteamInvites(sessions, settings, log);
+        private static object NewSteamInvites(SessionManager sessions, SkylineTogetherSettings settings, ILog log) => new SteamInvites(sessions, settings, log);
 
         /// <summary>Runs one part of <see cref="OnLoad"/>; a failure is logged and the next part still runs.</summary>
         private static bool Step(ILog log, string what, Action action)

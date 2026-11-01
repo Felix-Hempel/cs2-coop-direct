@@ -6,7 +6,8 @@ namespace SkylineTogether.Core.Transport.Direct
 {
     /// <summary>
     /// The direct-mode self-test (fork, probe <c>P-DIRECT</c>, in place of the Steam socket pair): two
-    /// <see cref="DirectTransport"/>s on 127.0.0.1, the host on port 0 (any free port), connect, then one message on every
+    /// <see cref="DirectTransport"/>s on 127.0.0.1, the host on port 0 (any free port) bound to loopback only (no
+    /// firewall dialog, nothing reachable from the network), connect, then one message on every
     /// <see cref="Lane"/> from the client to the host and back, each checked byte for byte. Blocks the calling thread until
     /// it passed or <c>timeoutMilliseconds</c> ran out (both transports are disposed either way). Returns null when it
     /// passed, else what failed (English, for the probe line).
@@ -24,7 +25,7 @@ namespace SkylineTogether.Core.Transport.Direct
             using (var host = new DirectTransport(log, clock, "self-test host"))
             using (var client = new DirectTransport(log, clock, "self-test client"))
             {
-                host.Listen(new ListenOptions { IpPort = 0, AllowIp = true, MaxConnections = 1 });
+                host.Listen(new ListenOptions { IpPort = 0, AllowIp = true, MaxConnections = 1, BindLoopback = true });
                 var hostSink = new Sink();
                 var clientSink = new Sink();
                 IConnection toHost = client.Connect(new Endpoint { Host = "127.0.0.1", Port = host.BoundPort });

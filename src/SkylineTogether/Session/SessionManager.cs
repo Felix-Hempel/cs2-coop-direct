@@ -339,7 +339,7 @@ namespace SkylineTogether.Session
             {
                 // direct peers have no Steam identity: the session password is what admits them (HostOptions.PasswordForUnauthenticated)
                 _log.Warn(LogCategory.Session, "direct mode needs a session password to host; hosting not started");
-                Notify(LocaleSource.Resolve("st.toast.directNeedsPassword"), ProgressState.Warning, null, 10f);
+                Notify(LocaleSource.Resolve("st.toast.directOnlyNeedsPassword"), ProgressState.Warning, null, 10f);
                 return;
             }
             SessionHost created = null;
@@ -452,11 +452,15 @@ namespace SkylineTogether.Session
             }
             catch (DirectListenException ex)
             {
-                // the port is taken (usually the old multiplayer mod's server or a second game): say which, not a stack trace
+                // the port is taken (usually the old multiplayer mod's server or a second game) or not allowed (another
+                // error, e.g. AccessDenied for a reserved port): say which, not a stack trace
                 _log.Warn(LogCategory.Session, "hosting failed: " + ex.Message);
                 DisposeUnstarted(created, transport);
                 StopHost(null);
-                Notify(LocaleSource.Resolve("st.toast.portBusy", "PORT", ex.Port.ToString(CultureInfo.InvariantCulture)), ProgressState.Failed, null, 15f);
+                string port = ex.Port.ToString(CultureInfo.InvariantCulture);
+                Notify(ex.Error == System.Net.Sockets.SocketError.AddressAlreadyInUse
+                    ? LocaleSource.Resolve("st.toast.portBusy", "PORT", port)
+                    : LocaleSource.Resolve("st.toast.portUnavailable", "PORT", port, "ERROR", ex.Error.ToString()), ProgressState.Failed, null, 15f);
             }
             catch (Exception ex)
             {

@@ -100,6 +100,22 @@ function steamMissing(s) {
   return s.steam === false && !s.directOnly;
 }
 
+// texts with a direct-mode variant (no Steam name, a required password, TCP instead of UDP)
+const DIRECT_TEXT = {
+  "st.ui.profile.namePlaceholder": "st.ui.profile.namePlaceholderDirect",
+  "st.ui.host.passwordPlaceholder": "st.ui.host.passwordPlaceholderDirect",
+  "st.ui.host.passwordHint": "st.ui.host.passwordHintDirect",
+  "st.ui.host.portHint": "st.ui.host.portHintDirect",
+};
+function td(s, key, vars) {
+  return t(s && s.directOnly && DIRECT_TEXT[key] ? DIRECT_TEXT[key] : key, vars);
+}
+
+// direct mode needs a session password to host: none stored and none typed yet
+function needsDirectPassword(s, typed) {
+  return !!s.directOnly && !s.hasPassword && str(typed).length === 0;
+}
+
 // null while the friends binding is missing or not an array
 function useFriends() {
   let raw = null;
@@ -203,6 +219,7 @@ const EN = {
   "st.ui.nav.solo": "Solo test",
   "st.ui.profile.name": "Your name",
   "st.ui.profile.namePlaceholder": "Default: your Steam name",
+  "st.ui.profile.namePlaceholderDirect": "Default: your Windows user name",
   "st.ui.profile.nameHint": "Shown to the other players, on your cursor and in the chat.",
   "st.ui.host.title": "Host this city",
   "st.ui.host.subtitle": "Open the city you are playing to your friends",
@@ -213,8 +230,11 @@ const EN = {
   "st.ui.host.sessionNameHint": "What your friends see while they join.",
   "st.ui.host.password": "Password",
   "st.ui.host.passwordPlaceholder": "Optional",
+  "st.ui.host.passwordPlaceholderDirect": "Required in direct mode",
   "st.ui.host.passwordKept": "Unchanged (a password is set)",
   "st.ui.host.passwordHint": "Leave empty for no password.",
+  "st.ui.host.passwordHintDirect": "Required in direct mode: players join with this password.",
+  "st.ui.host.needPasswordDirect": "Set a session password to host in direct mode.",
   "st.ui.host.removePassword": "Remove password",
   "st.ui.host.maxPlayers": "Max players",
   "st.ui.host.maxPlayersHint": "Including you.",
@@ -238,6 +258,7 @@ const EN = {
   "st.ui.host.banAddress": "address {ADDRESS}",
   "st.ui.host.port": "Port",
   "st.ui.host.portHint": "The UDP port players connect to directly (1024 to 65535).",
+  "st.ui.host.portHintDirect": "The TCP port players connect to directly (1024 to 65535).",
   "st.ui.host.portInvalid": "Enter a port from 1024 to 65535.",
   "st.ui.host.start": "Host this city",
   "st.ui.host.needCity": "Load or start a city first, then host it from there.",
@@ -1718,7 +1739,7 @@ function LiveSettings(p) {
       h(
         "div",
         { style: S.row },
-        h(Field, { value: password, onChange: setPassword, onEnter: apply, password: true, placeholder: s.hasPassword ? t("st.ui.host.passwordKept") : t("st.ui.host.passwordPlaceholder"), title: t("st.ui.settings.livePassword"), style: { flex: 1, width: "auto", marginRight: "8rem" } }),
+        h(Field, { value: password, onChange: setPassword, onEnter: apply, password: true, placeholder: s.hasPassword ? t("st.ui.host.passwordKept") : td(s, "st.ui.host.passwordPlaceholder"), title: t("st.ui.settings.livePassword"), style: { flex: 1, width: "auto", marginRight: "8rem" } }),
         h(Btn, { kind: "flat", disabled: password.length === 0, onClick: apply }, t("st.ui.settings.apply"))
       ),
       s.hasPassword ? h("div", { style: { marginTop: "6rem", fontSize: FS.s } }, h(LinkText, { onClick: function () { send("saveHostSettings", str(s.playerName), str(s.sessionNameSetting), ""); } }, t("st.ui.host.removePassword"))) : null
@@ -2144,8 +2165,8 @@ function HostOptions(p) {
     s.directOnly || (o.allowDirect && directOk)
       ? h(
           GameRow,
-          { label: t("st.ui.host.port"), hint: o.portInvalid ? null : t("st.ui.host.portHint") },
-          h(Field, { value: o.port, onChange: o.setPort, onBlur: function () { o.save({}); }, onEnter: function () { o.save({}); }, invalid: o.portInvalid, ids: true, max: 5, style: { width: "100rem", textAlign: "center" }, title: t("st.ui.host.port"), description: t("st.ui.host.portHint") })
+          { label: t("st.ui.host.port"), hint: o.portInvalid ? null : td(s, "st.ui.host.portHint") },
+          h(Field, { value: o.port, onChange: o.setPort, onBlur: function () { o.save({}); }, onEnter: function () { o.save({}); }, invalid: o.portInvalid, ids: true, max: 5, style: { width: "100rem", textAlign: "center" }, title: t("st.ui.host.port"), description: td(s, "st.ui.host.portHint") })
         )
       : null,
     (s.directOnly || (o.allowDirect && directOk)) && o.portInvalid ? h(FieldError, { style: { padding: "0 6rem 6rem 6rem" } }, t("st.ui.host.portInvalid")) : null,
@@ -2210,7 +2231,8 @@ function GameHostTab(p) {
   const save = function (pw) {
     send("saveHostSettings", p.name, session, pw !== undefined ? pw : password.length > 0 ? password : str(s.keepPassword) || KEEP_PASSWORD);
   };
-  const reason = hostReason(s);
+  const needPassword = needsDirectPassword(s, password);
+  const reason = needPassword ? t("st.ui.host.needPasswordDirect") : hostReason(s);
   return h(
     "div",
     null,
@@ -2222,8 +2244,8 @@ function GameHostTab(p) {
       h(GameField, { label: t("st.ui.host.sessionName"), hint: t("st.ui.host.sessionNameHint") }, h(Field, { value: session, onChange: setSession, onBlur: function () { save(); }, placeholder: t("st.ui.host.sessionNamePlaceholder", { NAME: p.name || str(s.playerName) || "…" }), title: t("st.ui.host.sessionName"), max: 64 })),
       h(
         GameField,
-        { label: t("st.ui.host.password"), hint: s.hasPassword ? null : t("st.ui.host.passwordHint") },
-        h(Field, { value: password, onChange: setPassword, onBlur: function () { save(); }, password: true, placeholder: s.hasPassword ? t("st.ui.host.passwordKept") : t("st.ui.host.passwordPlaceholder"), title: t("st.ui.host.password"), max: 64 }),
+        { label: t("st.ui.host.password"), hint: s.hasPassword ? null : td(s, "st.ui.host.passwordHint") },
+        h(Field, { value: password, onChange: setPassword, onBlur: function () { save(); }, password: true, placeholder: s.hasPassword ? t("st.ui.host.passwordKept") : td(s, "st.ui.host.passwordPlaceholder"), title: t("st.ui.host.password"), max: 64 }),
         s.hasPassword ? h("div", { style: { marginTop: "6rem", fontSize: FS.s } }, h(LinkText, { onClick: function () { setPassword(""); save(""); } }, t("st.ui.host.removePassword"))) : null
       )
     ),
@@ -2232,7 +2254,7 @@ function GameHostTab(p) {
       Section,
       null,
       reason ? h(Hint, { style: { padding: "2rem 6rem 6rem 6rem" } }, reason) : null,
-      h("div", { style: { padding: "4rem 6rem" } }, h(Btn, { kind: "primary", disabled: !s.canHost, onClick: function () { save(); send("host"); }, style: { width: "100%" } }, t("st.ui.host.start")))
+      h("div", { style: { padding: "4rem 6rem" } }, h(Btn, { kind: "primary", disabled: !s.canHost || needPassword, onClick: function () { save(); send("host"); }, style: { width: "100%" } }, t("st.ui.host.start")))
     )
   );
 }
@@ -2298,7 +2320,7 @@ function GameLobby(p) {
   const saveName = function () {
     send("saveHostSettings", name, str(s.sessionNameSetting), str(s.keepPassword) || KEEP_PASSWORD);
   };
-  const nameField = h(GameField, { label: t("st.ui.profile.name") }, h(Field, { value: name, onChange: setName, onBlur: saveName, placeholder: t("st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 }));
+  const nameField = h(GameField, { label: t("st.ui.profile.name") }, h(Field, { value: name, onChange: setName, onBlur: saveName, placeholder: td(s, "st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 }));
   return h(
     "div",
     null,
@@ -2488,7 +2510,7 @@ function MenuJoinPage(p) {
     },
     steamMissing(s) ? h(MenuNotice, { color: T.bad }, h("div", { style: { fontWeight: "bold" } }, t("st.ui.steam.missing.title")), t("st.ui.steam.missing.text")) : null,
     h(MenuText, { style: { color: T.menuText2, fontSize: FS.m } }, t(direct ? "st.ui.join.introDirect" : "st.ui.join.intro")),
-    h(MenuRow, { label: t("st.ui.profile.name"), info: t("st.ui.profile.nameHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: name, onChange: setName, onBlur: saveName, placeholder: t("st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 })),
+    h(MenuRow, { label: t("st.ui.profile.name"), info: t("st.ui.profile.nameHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: name, onChange: setName, onBlur: saveName, placeholder: td(s, "st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 })),
     h(MenuRow, { label: t("st.ui.join.targetShort"), info: direct ? t("st.ui.join.introDirect") : t("st.ui.join.intro") + " " + t("st.ui.join.findId"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: target, onChange: function (v) { setTarget(normalizeTarget(v)); }, onEnter: join, invalid: !!problem, ids: true, placeholder: t(direct ? "st.ui.join.targetPlaceholderDirect" : "st.ui.join.targetPlaceholder"), title: t(direct ? "st.ui.join.targetDirect" : "st.ui.join.target"), description: t(direct ? "st.ui.join.introDirect" : "st.ui.join.intro"), max: 96 })),
     problem ? h(FieldError, { menu: true, style: { padding: "0 16rem 8rem 16rem" } }, problem) : null,
     h(MenuRow, { label: t("st.ui.join.password"), info: t("st.ui.join.passwordHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: password, onChange: setPassword, onEnter: join, password: true, placeholder: t("st.ui.join.passwordPlaceholder"), title: t("st.ui.join.password"), max: 64 })),
@@ -2515,6 +2537,7 @@ function MenuHostPage(p) {
   const [friendsOnly, setFriendsOnly] = React.useState(!!s.friendsOnly);
   const [newViewer, setNewViewer] = React.useState(!!s.newPlayersViewer);
   const directOk = !!s.hasPassword; // direct connections need a password
+  const needPassword = needsDirectPassword(s, password);
   const o = useHostOptions(s);
   // an untouched (empty) password field keeps the stored host password instead of wiping it
   const save = function (pw) {
@@ -2528,8 +2551,8 @@ function MenuHostPage(p) {
       subtitle: t("st.ui.host.subtitle"),
       info: info,
       footer: [
-        h("div", { key: "why", style: { flex: 1, color: T.menuText2, fontSize: FS.m, marginRight: "16rem" } }, !inGame ? t("st.ui.host.needCity") : hostReason(s)),
-        h(Btn, { key: "host", kind: "menuPrimary", disabled: !inGame || !s.canHost, onClick: function () { save(); send("host"); }, style: { minWidth: "220rem" } }, t("st.ui.host.start")),
+        h("div", { key: "why", style: { flex: 1, color: T.menuText2, fontSize: FS.m, marginRight: "16rem" } }, !inGame ? t("st.ui.host.needCity") : needPassword ? t("st.ui.host.needPasswordDirect") : hostReason(s)),
+        h(Btn, { key: "host", kind: "menuPrimary", disabled: !inGame || !s.canHost || needPassword, onClick: function () { save(); send("host"); }, style: { minWidth: "220rem" } }, t("st.ui.host.start")),
       ],
     },
     steamMissing(s) ? h(MenuNotice, { color: T.bad }, h("div", { style: { fontWeight: "bold" } }, t("st.ui.steam.missing.title")), t("st.ui.steam.missing.text")) : null,
@@ -2550,9 +2573,9 @@ function MenuHostPage(p) {
         )
       : null,
     h(MenuGroup, null, t("st.ui.host.settingsTitle")),
-    h(MenuRow, { label: t("st.ui.profile.name"), info: t("st.ui.profile.nameHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: name, onChange: setName, onBlur: function () { save(); }, placeholder: t("st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 })),
+    h(MenuRow, { label: t("st.ui.profile.name"), info: t("st.ui.profile.nameHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: name, onChange: setName, onBlur: function () { save(); }, placeholder: td(s, "st.ui.profile.namePlaceholder"), title: t("st.ui.profile.name"), max: 64 })),
     h(MenuRow, { label: t("st.ui.host.sessionName"), info: t("st.ui.host.sessionNameHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: session, onChange: setSession, onBlur: function () { save(); }, placeholder: t("st.ui.host.sessionNamePlaceholder", { NAME: name || str(s.playerName) || "…" }), title: t("st.ui.host.sessionName"), max: 64 })),
-    h(MenuRow, { label: t("st.ui.host.password"), info: t("st.ui.host.passwordHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: password, onChange: setPassword, onBlur: function () { save(); }, password: true, placeholder: s.hasPassword ? t("st.ui.host.passwordKept") : t("st.ui.host.passwordPlaceholder"), title: t("st.ui.host.password"), max: 64 })),
+    h(MenuRow, { label: t("st.ui.host.password"), info: td(s, "st.ui.host.passwordHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: password, onChange: setPassword, onBlur: function () { save(); }, password: true, placeholder: s.hasPassword ? t("st.ui.host.passwordKept") : td(s, "st.ui.host.passwordPlaceholder"), title: t("st.ui.host.password"), max: 64 })),
     s.hasPassword ? h("div", { style: { padding: "0 16rem 8rem 16rem", textAlign: "right", fontSize: FS.m } }, h(LinkText, { onClick: function () { setPassword(""); save(""); } }, t("st.ui.host.removePassword"))) : null,
     h(MenuRow, { label: t("st.ui.host.maxPlayers"), info: t("st.ui.host.maxPlayersHint"), onInfo: setHoverInfo }, h(Stepper, { menu: true, value: o.maxPlayers, min: 2, max: 16, onChange: o.setMax })),
     h(MenuRow, { label: t("st.ui.host.requireMods"), info: t("st.ui.host.requireModsHint"), onInfo: setHoverInfo, onClick: function () { o.setMods(!o.requireMods); } }, h(Check, { menu: true, checked: o.requireMods, onChange: o.setMods })),
@@ -2575,9 +2598,9 @@ function MenuHostPage(p) {
           { label: t("st.ui.host.allowDirect"), info: directOk ? t("st.ui.host.allowDirectHint") : t("st.ui.host.allowDirectNeedsPassword"), onInfo: setHoverInfo, onClick: directOk ? function () { o.setDirect(!o.allowDirect); } : undefined },
           h(Check, { menu: true, checked: o.allowDirect && directOk, disabled: !directOk, onChange: o.setDirect })
         ),
-    !directOk ? h("div", { style: { padding: "0 16rem 8rem 16rem", color: T.menuText2, fontSize: FS.m } }, t("st.ui.host.allowDirectNeedsPassword")) : null,
+    !directOk && !s.directOnly ? h("div", { style: { padding: "0 16rem 8rem 16rem", color: T.menuText2, fontSize: FS.m } }, t("st.ui.host.allowDirectNeedsPassword")) : null,
     s.directOnly || (o.allowDirect && directOk)
-      ? h(MenuRow, { label: t("st.ui.host.port"), info: t("st.ui.host.portHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: o.port, onChange: o.setPort, onBlur: function () { o.save({}); }, onEnter: function () { o.save({}); }, invalid: o.portInvalid, ids: true, max: 5, title: t("st.ui.host.port"), description: t("st.ui.host.portHint"), style: { flex: "0 1 140rem", textAlign: "center" } }))
+      ? h(MenuRow, { label: t("st.ui.host.port"), info: td(s, "st.ui.host.portHint"), onInfo: setHoverInfo }, h(Field, { look: "menu", value: o.port, onChange: o.setPort, onBlur: function () { o.save({}); }, onEnter: function () { o.save({}); }, invalid: o.portInvalid, ids: true, max: 5, title: t("st.ui.host.port"), description: td(s, "st.ui.host.portHint"), style: { flex: "0 1 140rem", textAlign: "center" } }))
       : null,
     (s.directOnly || (o.allowDirect && directOk)) && o.portInvalid ? h(FieldError, { menu: true, style: { padding: "0 16rem 8rem 16rem" } }, t("st.ui.host.portInvalid")) : null,
     h(BanList, { state: s, menu: true })

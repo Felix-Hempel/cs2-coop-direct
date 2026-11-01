@@ -8,7 +8,7 @@ tools/linux-test.sh          # baut Core + Tests, führt die Tests aus; Exit-Cod
 tools/linux-test.sh --game   # zusätzlich Game-Layer-Build gegen /mnt/d/games/Cities Skylines II
 ```
 
-Erwartet: `1492 passed, 0 failed`. Die Testflags entsprechen der CI (`--expect-at-least` wird aus
+Erwartet: `1516 passed, 0 failed` (Stand Task 4). Die Testflags entsprechen der CI (`--expect-at-least` wird aus
 `.github/workflows/ci.yml` gelesen, `--max-skipped 0`). Exit-Codes: Anzahl Fehlschläge; `125` = Game-Layer-Build
 fehlgeschlagen (`--game`).
 
@@ -21,12 +21,15 @@ sudo mkdir -p /mnt/d && sudo mount -t ntfs3 -o ro /dev/nvme0n1p2 /mnt/d
 # danach: sudo umount /mnt/d
 ```
 
-Ergebnis (2026-11-01): geht nicht. `dotnet build SkylineTogether.sln -c Release -p:DeployMod=false
-"-p:GameDir=/game/games/Cities Skylines II"` bricht ab mit:
+Ergebnis: geht (seit Task 4). `--game` mountet den Spielordner selbst nach `/game` (Pfad ohne Leerzeichen), baut die
+ganze Solution gegen `/game/Cities2_Data/Managed`, prüft die Typliste `Data/mod-types.generated.txt` (nur Hinweis) und
+lässt `tools/ApiCheck` gegen die Spiel-Assemblies laufen. Exit-Code `125`, wenn Build oder API-Check scheitern.
 
-```
-error NU1201: Project SkylineTogether.Core is not compatible with net472 (.NETFramework,Version=v4.7.2).
-Project SkylineTogether.Core supports: netstandard2.1 (.NETStandard,Version=v2.1)
-```
+Die frühere Ursache für `NU1201: Project SkylineTogether.Core is not compatible with net472` war nicht das Leerzeichen
+im Pfad, sondern SELinux: Der read-only NTFS-Mount lässt sich nicht mit `:Z` umlabeln, der Container bekam auf
+`/game` nur `Permission denied`, `Exists('$(GameManagedPath)\mscorlib.dll')` war deshalb false und Core fiel auf
+netstandard2.1 zurück. Für `--game` läuft der Container deshalb mit `--security-opt label=disable` (weiterhin
+`--network=none`, Quellen und Spielordner read-only).
 
-Game-Layer baut Windows per `tools/build.sh`. Auf Linux wurde nicht weiter versucht, das zu lösen.
+Die gebauten DLLs bleiben im Container (`/tmp/w`). Ein deploybarer Mod-Ordner entsteht weiterhin unter Windows mit
+`tools/build.sh --deploy` (Ziel `Mods\SkylineTogetherDirect`).

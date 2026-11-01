@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # Builds Core and the tests in a network-less container and runs them (upstream code is untrusted).
-# Usage: tools/linux-test.sh [--game]
+# Usage: tools/linux-test.sh [--game] [--package]
 #   --game  additionally builds the whole solution against /mnt/d/games/Cities Skylines II (mounted read-only) and runs
 #           tools/ApiCheck against the game's assemblies.
+#   --package  implies --game; additionally stages the mod (tools/build.sh --package --stage-only) and zips it to
+#           dist/SkylineTogetherDirect-<version>.zip. The dotnet image has neither Python nor zip, so a second network-less
+#           container (docker.io/library/python:3.12-slim, `podman pull` it once) zips and runs `release_common.py check-zip`.
+#           Only dist/ is mounted writable. The zip is not reproducible-by-commit: the container has no .git.
 # Exit code = number of failed tests (or non-zero if a build fails); 125 = the game-layer build or the API check failed.
 # Test flags mirror .github/workflows/ci.yml (--expect-at-least is read from there, --max-skipped 0).
 set -u
 
 GAME=0
+PACKAGE=0
 for arg in "$@"; do
   case "$arg" in
     --game) GAME=1 ;;
+    --package) GAME=1; PACKAGE=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 64 ;;
   esac
 done
@@ -40,7 +46,14 @@ if [ "$GAME" = 1 ]; then
     && dotnet tools/ApiCheck/bin/Release/net8.0/ApiCheck.dll --managed /game/Cities2_Data/Managed --dll src/SkylineTogether/bin/Release/net472/SkylineTogether.dll --dll src/SkylineTogether/bin/Release/net472/SkylineTogether.Core.dll'
 fi
 
-exec podman run --rm --network=none "${SECURITY[@]}" "${MOUNTS[@]}" -e GAME_STEP="$GAME_STEP" -e EXPECT="$EXPECT" -w /tmp "$IMAGE" bash -c '
+PACKAGE_STEP=""
+if [ "$PACKAGE" = 1 ]; then
+  mkdir -p "$REPO/dist"
+  MOUNTS+=(-v "$REPO/dist":/out:Z)
+  PACKAGE_STEP=1
+fi
+
+podman run --rm --network=none "${SECURITY[@]}" "${MOUNTS[@]}" -e GAME_STEP="$GAME_STEP" -e PACKAGE_STEP="$PACKAGE_STEP" -e EXPECT="$EXPECT" -w /tmp "$IMAGE" bash -c '
 set -u
 mkdir -p /tmp/w
 cd /src && tar --exclude=./.git --exclude="*/bin" --exclude="*/obj" -cf - . | tar -xf - -C /tmp/w
@@ -53,5 +66,28 @@ rc=$?
 if [ -n "$GAME_STEP" ]; then
   eval "$GAME_STEP" || { echo "GAME-LAYER BUILD OR API CHECK FAILED"; rc=125; }
 fi
+if [ "$rc" = 0 ] && [ -n "${PACKAGE_STEP:-}" ]; then
+  # clean first: the incremental test build above lacked GameDir, and reusing it drops the System.IO.Hashing copy
+  rm -rf src/*/bin src/*/obj tests/*/bin tests/*/obj tools/ApiCheck/bin tools/ApiCheck/obj
+  bash tools/build.sh --package --stage-only --game-dir /game --skip-ui-checks \
+    && rm -rf /out/stage && cp -r dist/stage /out/stage \
+    && sed -n "s:.*<Version>\\(.*\\)</Version>.*:\\1:p" Directory.Build.props | head -n 1 > /out/stage/VERSION \
+    || { echo "PACKAGE STAGING FAILED"; rc=126; }
+fi
 exit $rc
 '
+rc=$?
+
+if [ "$PACKAGE" = 1 ] && [ "$rc" = 0 ]; then
+  VERSION="$(cat "$REPO/dist/stage/VERSION")"
+  rm -f "$REPO/dist/SkylineTogetherDirect-$VERSION.zip"
+  podman run --rm --network=none -v "$REPO":/src:ro,Z -v "$REPO/dist":/out:Z -w /tmp docker.io/library/python:3.12-slim sh -c '
+    set -e
+    rm -f /out/stage/VERSION
+    python3 -B /src/tools/release_common.py zip /out/stage/SkylineTogetherDirect "/out/SkylineTogetherDirect-'"$VERSION"'.zip"
+    python3 -B /src/tools/release_common.py check-zip "/out/SkylineTogetherDirect-'"$VERSION"'.zip"
+    python3 -B -m zipfile -l "/out/SkylineTogetherDirect-'"$VERSION"'.zip"
+    rm -rf /out/stage' || { echo "ZIP OR check-zip FAILED"; rc=127; }
+  [ "$rc" = 0 ] && echo "packaged: $REPO/dist/SkylineTogetherDirect-$VERSION.zip"
+fi
+exit $rc

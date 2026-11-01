@@ -2,7 +2,7 @@
 
 Usage (repo root):  python tools/installer/smoke_test.py <SkylineTogether.Core.dll> [--keep] [--allow-dirty]
 
-Builds a stand-in release zip dist/SkylineTogether-<Version>.zip whose DLLs are the given Core DLL (CI cannot build
+Builds a stand-in release zip dist/SkylineTogetherDirect-<Version>.zip whose DLLs are the given Core DLL (CI cannot build
 the game layer; any DLL built from HEAD carries the commit the release tools check), runs make_installer.py, then
 runs the generated installer with -NoPause -SkipGameCheck against a fake user profile (its TEMP and LOCALAPPDATA too)
 and checks the installed files and the build id it prints, installs again over that copy (the upgrade: the old copy is
@@ -35,7 +35,7 @@ def main(argv):
     dll_path = argv[0]
     keep = '--keep' in argv
     version = release_common.release_version()
-    zip_path = os.path.join(release_common.DIST, 'SkylineTogether-%s.zip' % version)
+    zip_path = os.path.join(release_common.DIST, 'SkylineTogetherDirect-%s.zip' % version)
     if os.path.exists(zip_path):
         fail('%s exists; this test writes a stand-in release zip and does not overwrite a real one' % os.path.relpath(zip_path, ROOT))
     dll = open(dll_path, 'rb').read()
@@ -48,14 +48,14 @@ def main(argv):
 
     os.makedirs(release_common.DIST, exist_ok=True)
     release_common.write_zip(zip_path, [
-        ('SkylineTogether/SkylineTogether.dll', dll),
-        ('SkylineTogether/SkylineTogether.pdb', pdb),
-        ('SkylineTogether/SkylineTogether.Core.dll', dll),
-        ('SkylineTogether/SkylineTogether.Core.pdb', pdb),
-        ('SkylineTogether/SkylineTogether.mjs', text('ui/SkylineTogether.mjs')),
-        ('SkylineTogether/LICENSE', text('LICENSE')),
-        ('SkylineTogether/THIRD-PARTY-NOTICES.txt', text('THIRD-PARTY-NOTICES.txt')),
-        ('SkylineTogether/README.txt', b'stand-in release for the installer smoke test\n'),
+        ('SkylineTogetherDirect/SkylineTogether.dll', dll),
+        ('SkylineTogetherDirect/SkylineTogether.pdb', pdb),
+        ('SkylineTogetherDirect/SkylineTogether.Core.dll', dll),
+        ('SkylineTogetherDirect/SkylineTogether.Core.pdb', pdb),
+        ('SkylineTogetherDirect/SkylineTogether.mjs', text('ui/SkylineTogether.mjs')),
+        ('SkylineTogetherDirect/LICENSE', text('LICENSE')),
+        ('SkylineTogetherDirect/THIRD-PARTY-NOTICES.txt', text('THIRD-PARTY-NOTICES.txt')),
+        ('SkylineTogetherDirect/README.txt', b'stand-in release for the installer smoke test\n'),
     ])
     # a space in the path, like a user folder named "First Last" (a file:/// URL writes it as %20)
     profile = tempfile.mkdtemp(prefix='st-installer smoke-')

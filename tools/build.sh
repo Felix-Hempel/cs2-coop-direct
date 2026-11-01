@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Skyline Together build script (docs/dev/building.md).
 #
-#   tools/build.sh [--deploy] [--package] [--game-dir <path>] [--deploy-dir <path>] [--skip-ui-checks] [--skip-api-check]
+#   tools/build.sh [--deploy] [--package] [--stage-only] [--game-dir <path>] [--deploy-dir <path>] [--skip-ui-checks] [--skip-api-check]
 #
 # Order: Release build -> type list (src/SkylineTogether/Data/mod-types.generated.txt) -> API check (tools/ApiCheck:
 # every referenced game type and member exists) -> UI checks (when node is installed) -> Core tests -> deploy
@@ -9,9 +9,11 @@
 #
 #   --deploy        copy the mod into the local Mods folder (default:
 #                   %USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\Mods\SkylineTogetherDirect, the fork; never the original mod's folder)
-#   --package       write dist/SkylineTogether-<version>.zip (a SkylineTogether folder with the DLLs, PDBs,
+#   --package       write dist/SkylineTogetherDirect-<version>.zip (a SkylineTogetherDirect folder with the DLLs, PDBs,
 #                   the UI module, LICENSE, THIRD-PARTY-NOTICES.txt and README.txt; extract it into the Mods folder);
 #                   with Python the zip is reproducible (tools/release_common.py)
+#   --stage-only    with --package: stop after staging dist/stage/SkylineTogetherDirect (no zip; for tools/linux-test.sh --package,
+#                   whose container has neither Python nor zip)
 #   --game-dir      the game's install folder (default: the Steam path of Directory.Build.props; env GameDir)
 #   --deploy-dir    deploy target (env ModDeployDir)
 #   --skip-ui-checks / --skip-api-check   leave out the UI checks / the API check
@@ -25,17 +27,19 @@ cd "$ROOT"
 
 DEPLOY=0
 PACKAGE=0
+STAGE_ONLY=0
 UI_CHECKS=1
 API_CHECK=1
 GAME_DIR="${GameDir:-}"
 DEPLOY_DIR="${ModDeployDir:-}"
 
-usage() { sed -n '2,19p' "$SCRIPT" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,21p' "$SCRIPT" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --deploy) DEPLOY=1 ;;
     --package) PACKAGE=1 ;;
+    --stage-only) STAGE_ONLY=1 ;;
     --skip-ui-checks) UI_CHECKS=0 ;;
     --skip-api-check) API_CHECK=0 ;;
     --game-dir) shift; GAME_DIR="${1:?--game-dir needs a path}" ;;
@@ -163,9 +167,9 @@ fi
 
 # ---------- package ----------
 if [ "$PACKAGE" = 1 ]; then
-  NAME="SkylineTogether-$VERSION"
+  NAME="SkylineTogetherDirect-$VERSION"
   STAGE_ROOT="dist/stage"
-  STAGE="$STAGE_ROOT/SkylineTogether"
+  STAGE="$STAGE_ROOT/SkylineTogetherDirect"
   ZIP="dist/$NAME.zip"
   step "Package $ZIP"
   rm -rf "$STAGE_ROOT" "$ZIP"
@@ -175,42 +179,36 @@ if [ "$PACKAGE" = 1 ]; then
     if [ -f "$f" ]; then cp -f "$f" "$STAGE/"; fi
   done
   cat > "$STAGE/README.txt" <<EOF
-Skyline Together $VERSION - co-op multiplayer for Cities: Skylines II
-https://github.com/ljkx/SkylineTogether
-
-Recommended: subscribe on Paradox Mods instead (https://mods.paradoxplaza.com/mods/163578/Windows).
-Use one of the two, not both.
+Skyline Together Direct $VERSION - co-op for Cities: Skylines II over a direct TCP connection (no Steam)
+Fork of Skyline Together (https://github.com/ljkx/SkylineTogether); built for two players over Tailscale.
 
 Install: extract this archive into
   %USERPROFILE%\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\Mods
-so that the files end up in Mods\\SkylineTogether, then start the game.
+so that the files end up in Mods\\SkylineTogetherDirect, then start the game. Unsubscribe the original Skyline Together
+(Paradox Mods ID 159499) first: both mods must not be active at once.
 
-Every player of a session needs the same build of the mod (the build ID at the bottom of the Skyline Together
-panel), the same game version and, by default, the same code mods. If the mods differ, the joining player is told
-exactly what to enable, disable or update.
+Every player needs the same build of the mod (the build ID in the panel), the same game version and the same DLCs.
 
 Play:
-  Host:  load your city, click the Skyline Together button (top left) and press "Host this city".
-         Send the other players your Steam ID (copy icon at the top of the panel), or use "Invite friends".
-  Join:  on the title screen click "Multiplayer", then "Join a friend". Paste the host's Steam ID (or IP:port)
-         and the password if there is one, and press "Join".
-         Your game downloads and loads the host's city; the host's game pauses until you have joined.
+  Host:  load your city, open the Skyline Together Direct panel, set a password and press "Host this city".
+         The host needs TCP port 27015 open for the other player (tools/deploy-windows.ps1 creates the firewall rule).
+  Join:  on the title screen click "Multiplayer", then "Join a friend". Enter <host Tailscale IP>:27015 and the password.
 
 Back up your saves before you host or join.
 
-To report a bug, click "Write diagnostics" in the panel and attach these files of every player to a GitHub issue
-(https://github.com/ljkx/SkylineTogether/issues):
+Logs (attach those of every player to a bug report):
   %USERPROFILE%\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\Logs\\SkylineTogether.log
   %USERPROFILE%\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\Logs\\SkylineTogether-diagnostics-*.txt
-They contain player names, Steam IDs, the session name and IP addresses, but only in shortened form; never passwords
-or chat. Your user folder is written as %USERPROFILE%. Never attach crash dumps (.dmp): they can contain passwords.
-Details:
-https://github.com/ljkx/SkylineTogether/blob/main/docs/guide/troubleshooting.md#reporting-a-bug
 EOF
   # every file a player needs, or no package (copy_mod_files skips missing files silently)
   for f in SkylineTogether.dll SkylineTogether.pdb SkylineTogether.Core.dll SkylineTogether.Core.pdb SkylineTogether.mjs            LICENSE THIRD-PARTY-NOTICES.txt README.txt; do
     [ -f "$STAGE/$f" ] || fail "the package would lack $f"
   done
+  if [ "$STAGE_ONLY" = 1 ]; then
+    echo "staged: $STAGE (no zip: --stage-only)"
+    step "Done"
+    exit 0
+  fi
   PY=""
   for candidate in python3 python py; do
     if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "import zipfile" >/dev/null 2>&1; then PY="$candidate"; break; fi
@@ -236,10 +234,10 @@ EOF
     "$PY" tools/release_common.py check-zip "$ZIP" || fail "the package is incomplete"
   elif command -v zip >/dev/null 2>&1; then
     echo "WARNING: no Python; the zip is not reproducible (it records the current time)"
-    (cd "$STAGE_ROOT" && zip -qr "../$NAME.zip" SkylineTogether) || fail "zip"
+    (cd "$STAGE_ROOT" && zip -qr "../$NAME.zip" SkylineTogetherDirect) || fail "zip"
   elif [ -x /c/Windows/System32/tar.exe ]; then
     echo "WARNING: no Python and no zip; Windows tar writes the zip, which is not reproducible (it records the current time)"
-    (cd "$STAGE_ROOT" && /c/Windows/System32/tar.exe -a -c -f "../$NAME.zip" SkylineTogether) || fail "tar -a"
+    (cd "$STAGE_ROOT" && /c/Windows/System32/tar.exe -a -c -f "../$NAME.zip" SkylineTogetherDirect) || fail "tar -a"
   elif command -v powershell.exe >/dev/null 2>&1 || command -v pwsh >/dev/null 2>&1; then
     echo "WARNING: no Python, zip or Windows tar; PowerShell writes the zip, which is not reproducible (it records the current"
     echo "         time) and has backslashes in its entry names"

@@ -18,7 +18,7 @@ Usage (repo root, after tools/build.sh --package):
             --yes            do not ask before uploading
             --game-dir <p>   the game's install folder (default: env GameDir, else the Steam path of Directory.Build.props)
             --publisher <p>  ModPublisher.exe (default: env CSII_MODPUBLISHERPATH, else the one inside the game folder)
-            --zip <p>        the release zip to upload (default: dist/SkylineTogether-<Version>.zip)
+            --zip <p>        the release zip to upload (default: dist/SkylineTogetherDirect-<Version>.zip)
             --for <command>  check only: the command whose rules apply (Release, Publish, NewVersion, Update)
             --allow-dirty    accept uncommitted changes and untracked build inputs (check and --dry-run only)
             --allow-prerelease  upload a <Version> with a pre-release suffix (-beta.1); without it only regular
@@ -155,7 +155,7 @@ def stage_content(zip_path, version, allow_dirty, require_pushed=True):
         if missing:
             fail('the release zip lacks ' + ', '.join(missing))
         try:
-            commit = release_common.verify_built_from_clean_head(z.read('SkylineTogether/SkylineTogether.dll'), version, allow_dirty,
+            commit = release_common.verify_built_from_clean_head(z.read('SkylineTogetherDirect/SkylineTogether.dll'), version, allow_dirty,
                                                                  require_pushed=require_pushed)
         except release_common.ReleaseError as e:
             fail('the release zip is not a build of the clean HEAD:' + str(e))
@@ -170,7 +170,7 @@ def stage_content(zip_path, version, allow_dirty, require_pushed=True):
     with zipfile.ZipFile(zip_path) as z:
         for name in z.namelist():
             parts = name.replace('\\', '/').split('/')
-            if len(parts) < 2 or parts[0] != 'SkylineTogether' or not parts[-1] or name.endswith('/'):
+            if len(parts) < 2 or parts[0] != 'SkylineTogetherDirect' or not parts[-1] or name.endswith('/'):
                 continue
             rel = '/'.join(parts[1:])
             if rel in LEFT_OUT or '..' in parts:
@@ -181,7 +181,7 @@ def stage_content(zip_path, version, allow_dirty, require_pushed=True):
                 f.write(z.read(name))
     for f in REQUIRED_FILES:
         if not os.path.isfile(os.path.join(CONTENT, f)):
-            fail('the release zip has no SkylineTogether/' + f)
+            fail('the release zip has no SkylineTogetherDirect/' + f)
     build =hashlib.sha256(open(os.path.join(CONTENT, 'SkylineTogether.dll'), 'rb').read()).hexdigest()[:12]
     print('content: %s (%s)' % (os.path.relpath(CONTENT, ROOT), ', '.join(sorted(os.listdir(CONTENT)))))
     print('build id: %s  (the same id the GitHub setup prints; players of both installs can play together)' % build)

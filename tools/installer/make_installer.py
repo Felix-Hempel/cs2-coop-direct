@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import release_common  # noqa: E402
 
 ap = argparse.ArgumentParser(description='Build the player installer from the release zip.')
-ap.add_argument('--zip', help='the release zip (default: dist/SkylineTogether-<Version>.zip)')
+ap.add_argument('--zip', help='the release zip (default: dist/SkylineTogetherDirect-<Version>.zip)')
 ap.add_argument('--allow-dirty', action='store_true', help='accept uncommitted changes and untracked build inputs (local tests only)')
 ap.add_argument('--allow-unpushed', action='store_true', help='accept a HEAD that is not on origin/main (local tests only)')
 args = ap.parse_args()
@@ -29,7 +29,7 @@ with zipfile.ZipFile(io.BytesIO(payload)) as z:
     missing = release_common.missing_release_files(z.namelist())
     if missing:
         sys.exit('the release zip lacks ' + ', '.join(missing) + '; build it again with tools/build.sh --package')
-    dll = z.read('SkylineTogether/SkylineTogether.dll')
+    dll = z.read('SkylineTogetherDirect/SkylineTogether.dll')
     # the build id: the first 12 hex digits of the SHA-256 of the shipped SkylineTogether.dll. The game computes the same
     # value from the loaded DLL (Core Session/BuildId.cs, GameInfoProvider.Build) and the installer script from the
     # installed file, so all three print the same id.

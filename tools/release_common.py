@@ -26,14 +26,14 @@ DIST = os.path.join(ROOT, 'dist')
 
 # every file of a release zip (tools/build.sh --package): the mod folder as players extract it into Mods
 REQUIRED_RELEASE_FILES = [
-    'SkylineTogether/LICENSE',
-    'SkylineTogether/README.txt',
-    'SkylineTogether/SkylineTogether.Core.dll',
-    'SkylineTogether/SkylineTogether.Core.pdb',
-    'SkylineTogether/SkylineTogether.dll',
-    'SkylineTogether/SkylineTogether.mjs',
-    'SkylineTogether/SkylineTogether.pdb',
-    'SkylineTogether/THIRD-PARTY-NOTICES.txt',
+    'SkylineTogetherDirect/LICENSE',
+    'SkylineTogetherDirect/README.txt',
+    'SkylineTogetherDirect/SkylineTogether.Core.dll',
+    'SkylineTogetherDirect/SkylineTogether.Core.pdb',
+    'SkylineTogetherDirect/SkylineTogether.dll',
+    'SkylineTogetherDirect/SkylineTogether.mjs',
+    'SkylineTogetherDirect/SkylineTogether.pdb',
+    'SkylineTogetherDirect/THIRD-PARTY-NOTICES.txt',
 ]
 
 # what a build reads besides the tracked files: an untracked file below one of these reaches the DLLs or the package
@@ -71,11 +71,11 @@ def release_version():
 
 
 def release_zip(version, explicit=None, dist=None):
-    """The release zip of <version> (dist/SkylineTogether-<version>.zip) or the explicit path; never another version's."""
+    """The release zip of <version> (dist/SkylineTogetherDirect-<version>.zip) or the explicit path; never another version's."""
     dist = dist or DIST
-    path = explicit or os.path.join(dist, 'SkylineTogether-%s.zip' % version)
+    path = explicit or os.path.join(dist, 'SkylineTogetherDirect-%s.zip' % version)
     if not os.path.isfile(path):
-        others = sorted(f for f in os.listdir(dist) if re.match(r'SkylineTogether-\d.*\.zip$', f)) if os.path.isdir(dist) else []
+        others = sorted(f for f in os.listdir(dist) if re.match(r'SkylineTogetherDirect-\d.*\.zip$', f)) if os.path.isdir(dist) else []
         raise ReleaseError('no %s (the version in Directory.Build.props is %s); run tools/build.sh --package first%s'
                            % (os.path.relpath(path, ROOT), version,
                               ('; dist/ holds other versions: ' + ', '.join(others)) if others else ''))
@@ -168,7 +168,7 @@ def commit_time():
     """The zip timestamp: the HEAD commit's time (UTC), so the same commit always gives the same bytes."""
     try:
         seconds = int(git('log', '-1', '--format=%ct'))
-    except (ReleaseError, ValueError):
+    except (ReleaseError, ValueError, OSError):  # OSError: no git on the PATH
         seconds = 315532800  # 1980-01-01, the earliest time a zip can store
     import time
     t = time.gmtime(max(seconds, 315532800))

@@ -31,16 +31,16 @@ class ReleaseZipSelection(unittest.TestCase):
 
     def test_takes_the_zip_of_the_version_not_the_lexically_last(self):
         for v in ('0.1.0-alpha.9', '0.1.0-alpha.10', '0.1.0-beta.1', '0.1.0', '0.9.0', '0.10.0'):
-            self.touch('SkylineTogether-%s.zip' % v)
+            self.touch('SkylineTogetherDirect-%s.zip' % v)
         for v in ('0.1.0-alpha.10', '0.1.0-alpha.9', '0.10.0', '0.9.0'):
-            self.assertEqual('SkylineTogether-%s.zip' % v, os.path.basename(rc.release_zip(v, dist=self.dist)))
+            self.assertEqual('SkylineTogetherDirect-%s.zip' % v, os.path.basename(rc.release_zip(v, dist=self.dist)))
 
     def test_a_missing_zip_fails_and_names_what_is_there(self):
-        self.touch('SkylineTogether-0.1.0-alpha.3.zip')
+        self.touch('SkylineTogetherDirect-0.1.0-alpha.3.zip')
         with self.assertRaises(rc.ReleaseError) as e:
             rc.release_zip('0.1.0-alpha.4', dist=self.dist)
         self.assertIn('0.1.0-alpha.4', str(e.exception))
-        self.assertIn('SkylineTogether-0.1.0-alpha.3.zip', str(e.exception))
+        self.assertIn('SkylineTogetherDirect-0.1.0-alpha.3.zip', str(e.exception))
 
     def test_an_explicit_zip_wins(self):
         self.touch('custom.zip')
@@ -51,7 +51,7 @@ class ReleaseContents(unittest.TestCase):
     def test_every_required_file_is_checked(self):
         self.assertEqual([], rc.missing_release_files(rc.REQUIRED_RELEASE_FILES))
         names = [n for n in rc.REQUIRED_RELEASE_FILES if not n.endswith('.mjs')]
-        self.assertEqual(['SkylineTogether/SkylineTogether.mjs'], rc.missing_release_files(names))
+        self.assertEqual(['SkylineTogetherDirect/SkylineTogether.mjs'], rc.missing_release_files(names))
         self.assertEqual([], rc.missing_release_files([n.replace('/', '\\') for n in rc.REQUIRED_RELEASE_FILES]))
 
     def test_the_commit_is_read_from_the_informational_version(self):

@@ -93,7 +93,9 @@ namespace SkylineTogether.Core.Transport.Direct
         }
 
         /// <summary>
-        /// Opens a dual-mode (IPv6 and IPv4) TCP listen socket on <see cref="ListenOptions.IpPort"/>. Throws
+        /// Opens a dual-mode (IPv6 and IPv4) TCP listen socket on <see cref="ListenOptions.IpPort"/> (IPv4 only, with a log
+        /// line, where dual mode is unavailable) and keeps <paramref name="options"/> itself: later changes to
+        /// <see cref="ListenOptions.MaxConnections"/> apply to the next connection. Throws
         /// <see cref="DirectListenException"/> naming the port when it cannot be bound (usually: already in use).
         /// </summary>
         [ThreadAffinity(ThreadKind.Main)]
@@ -106,18 +108,12 @@ namespace SkylineTogether.Core.Transport.Direct
             {
                 if (_disposed) throw new ObjectDisposedException(nameof(DirectTransport));
                 if (_listener != null) throw new InvalidOperationException("DirectTransport already listens on port " + _boundPort.ToString(CultureInfo.InvariantCulture));
-                Socket listener = OpenListener(options.IpPort, options.BindLoopback);
+                Socket listener = OpenListener(options.IpPort, options.BindLoopback, _log, _localName);
                 _listener = listener;
                 _boundPort = ((IPEndPoint)listener.LocalEndPoint).Port;
-                _listen = new ListenOptions
-                {
-                    IpPort = _boundPort,
-                    AllowIp = true,
-                    MaxConnections = options.MaxConnections,
-                    MaxPendingConnections = options.MaxPendingConnections,
-                    MaxPendingPerRemote = options.MaxPendingPerRemote,
-                    BindLoopback = options.BindLoopback
-                };
+                // held by reference, not copied: SessionHost.SetMaxPlayers raises MaxConnections while hosting, and the
+                // next accept must see it (an int field, read under _sync on the accept thread, written atomically)
+                _listen = options;
                 _acceptThread = new Thread(() => AcceptLoop(listener)) { IsBackground = true, Name = "SkylineTogether direct accept" };
                 _acceptThread.Start();
             }
@@ -272,7 +268,7 @@ namespace SkylineTogether.Core.Transport.Direct
 
         // ---- internals ----
 
-        private static Socket OpenListener(int port, bool loopback)
+        private static Socket OpenListener(int port, bool loopback, ILog log, string localName)
         {
             Socket socket = null;
             try
@@ -281,21 +277,24 @@ namespace SkylineTogether.Core.Transport.Direct
                 {
                     // IPv4 loopback only: reachable from this machine alone (the self-test dials 127.0.0.1)
                     socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    Bind(socket, new IPEndPoint(IPAddress.Loopback, port));
+                    socket.Bind(new IPEndPoint(IPAddress.Loopback, port));
                 }
                 else
                 {
                     try
                     {
                         socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp) { DualMode = true };
-                        Bind(socket, new IPEndPoint(IPAddress.IPv6Any, port));
+                        socket.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
                     }
-                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressFamilyNotSupported || ex.SocketErrorCode == SocketError.ProtocolNotSupported)
+                    catch (Exception ex) when (!IsAddressInUse(ex))
                     {
-                        // no IPv6 on this machine: IPv4 only
+                        // no usable dual-mode IPv6 socket on this machine (IPv6 off, DualMode not offered by the runtime,
+                        // ...): IPv4 only, which is all Tailscale's 100.x addresses need. A busy port is not retried.
                         socket?.Dispose();
+                        socket = null;
+                        log.Info(LogCategory.Net, localName + ": no dual-mode IPv6 listen socket (" + ex.GetType().Name + ": " + ex.Message + "), listening on IPv4 only");
                         socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                        Bind(socket, new IPEndPoint(IPAddress.Any, port));
+                        socket.Bind(new IPEndPoint(IPAddress.Any, port));
                     }
                 }
                 socket.Listen(Backlog);
@@ -313,22 +312,12 @@ namespace SkylineTogether.Core.Transport.Direct
             }
         }
 
-        private static void Bind(Socket socket, IPEndPoint endpoint)
-        {
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-            {
-                // Windows lets a second socket bind a port in use when it asks for address reuse; this one forbids that
-                try
-                {
-                    socket.ExclusiveAddressUse = true;
-                }
-                catch (Exception ex) when (ex is SocketException || ex is NotSupportedException || ex is PlatformNotSupportedException)
-                {
-                    // not offered by this runtime
-                }
-            }
-            socket.Bind(endpoint);
-        }
+        // No socket options on the listen socket, deliberately. Windows: SO_EXCLUSIVEADDRUSE would make a re-host fail
+        // while the last session's connections sit in TIME_WAIT on the port; without it a second listener still fails
+        // (neither asks for SO_REUSEADDR). Unix: .NET sets SO_REUSEADDR itself, which allows exactly the re-host over
+        // TIME_WAIT and still refuses a second active listener (tests: RelistenAfterCloseWithLiveTimeWaitSucceeds,
+        // ListenOnBusyPortThrowsWithPort).
+        private static bool IsAddressInUse(Exception ex) => ex is SocketException se && se.SocketErrorCode == SocketError.AddressAlreadyInUse;
 
         private void AcceptLoop(Socket listener)
         {

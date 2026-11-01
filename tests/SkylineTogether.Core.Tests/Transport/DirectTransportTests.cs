@@ -382,6 +382,52 @@ namespace SkylineTogether.Core.Tests.Transport
         }
 
         [Test]
+        public void RelistenAfterCloseWithLiveTimeWaitSucceeds()
+        {
+            // re-hosting right after a session: the host closed first, so its side of the old connection sits in TIME_WAIT
+            // on the listen port; a new listen on the same port must still bind (a second ACTIVE listener must not)
+            int port;
+            using (Rig rig = Connected())
+            {
+                port = rig.Host.BoundPort;
+                rig.HostConn.Close(7, "re-host", false);
+                Assert.True(PollUntil(() => rig.ClientSink.Disconnected.Count == 1, 3000, rig.PollBoth), "the client sees the host's close");
+                rig.ClientConn.Close(7, "bye", false);
+                rig.Host.Dispose();
+            }
+            using (DirectTransport again = NewTransport("again"))
+            {
+                again.Listen(new ListenOptions { IpPort = port, AllowIp = true });
+                Assert.Equal(port, again.BoundPort);
+                using (DirectTransport busy = NewTransport("busy"))
+                {
+                    Assert.Throws<DirectListenException>(() => busy.Listen(new ListenOptions { IpPort = port, AllowIp = true }));
+                }
+            }
+        }
+
+        [Test]
+        public void RaisingMaxConnectionsAfterListenAdmitsAnotherClient()
+        {
+            // SessionHost.SetMaxPlayers raises ListenOptions.MaxConnections while hosting; the transport must see it live
+            var options = new ListenOptions { MaxConnections = 1 };
+            using (Rig rig = Connected(options: options))
+            using (DirectTransport second = NewTransport("second"))
+            {
+                var sink = new RecordingSink();
+                options.MaxConnections = 2;
+                second.Connect(Local(rig.Host.BoundPort));
+                Assert.True(PollUntil(() => sink.Connected.Count == 1 || sink.Disconnected.Count == 1, 3000, () =>
+                {
+                    rig.PollBoth();
+                    second.Poll(sink);
+                }), "the second client gets an answer");
+                Assert.Equal(0, sink.Disconnected.Count, "not refused: " + (sink.Disconnected.Count > 0 ? sink.Disconnected[0].Text : ""));
+                Assert.Equal(1, sink.Connected.Count);
+            }
+        }
+
+        [Test]
         public void GarbagePreambleIsClosed()
         {
             using (DirectTransport host = ListeningHost())

@@ -104,7 +104,7 @@ namespace SkylineTogether.Core.Tests.Diagnostics
             // off Windows the redactor only knows the user name, so the placeholder is the name token
             string expected = System.Environment.OSVersion.Platform == System.PlatformID.Win32NT
                 ? PathRedactor.UserProfileToken
-                : "%USERNAME%";
+                : PathRedactor.UserNameToken;
             Assert.Contains(expected, redacted);
         }
 

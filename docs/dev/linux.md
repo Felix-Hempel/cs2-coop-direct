@@ -8,7 +8,9 @@ tools/linux-test.sh          # baut Core + Tests, führt die Tests aus; Exit-Cod
 tools/linux-test.sh --game   # zusätzlich Game-Layer-Build gegen /mnt/d/games/Cities Skylines II
 ```
 
-Erwartet: `1492 passed, 0 failed`.
+Erwartet: `1492 passed, 0 failed`. Die Testflags entsprechen der CI (`--expect-at-least` wird aus
+`.github/workflows/ci.yml` gelesen, `--max-skipped 0`). Exit-Codes: Anzahl Fehlschläge; `125` = Game-Layer-Build
+fehlgeschlagen (`--game`).
 
 ## Game-Layer unter Linux (--game)
 

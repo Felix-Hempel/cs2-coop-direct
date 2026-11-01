@@ -14,7 +14,7 @@ dasselbe Spielpaket und dieselben DLCs.
 
 ## 1. Repo holen
 
-```bash
+```powershell
 git clone https://github.com/Felix-Hempel/cs2-coop-direct.git C:\Users\felix\Documents\IT\cs2-coop-direct
 # oder, falls schon vorhanden:
 git -C C:\Users\felix\Documents\IT\cs2-coop-direct pull origin main
@@ -26,17 +26,23 @@ git -C C:\Users\felix\Documents\IT\cs2-coop-direct pull origin main
 - Git Bash (`winget install Git.Git`). `deploy-windows.ps1` nimmt gezielt dessen `bash.exe`, nicht das WSL-`bash`.
 - node (optional, für die UI-Checks im Build; ohne node werden sie übersprungen)
 - Kein NuGet nötig, es wird nichts restored.
+- **Tailscale** auf beiden PCs installiert und angemeldet. Der Freund ist in Felix' Tailnet, oder Felix' Node ist mit ihm
+  geteilt. Auf dem Host die IP mit `tailscale ip -4` holen.
+- Vor dem Abend prüfen: `tailscale ping <Tailscale-IP von Felix>` vom Freund. Sobald der Host hostet:
+  `Test-NetConnection <Tailscale-IP von Felix> -Port 27015` vom Freund (`TcpTestSucceeded : True`).
+- **Spiel schließen** vor jedem Deploy: die geladene DLL blockiert das Kopieren.
 
 ## 3. Bauen und deployen
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\deploy-windows.ps1
-# andere Spielinstallation: -GameDir "E:\Games\Cities Skylines II"; ohne Firewall-Schritt: -SkipFirewall
+# andere Spielinstallation: -GameDir "E:\Games\Cities Skylines II"; ohne Firewall-Schritt: -SkipFirewall;
+# Git Bash an ungewöhnlichem Ort: -BashPath "D:\Git\bin\bash.exe"
 ```
 
 Das Skript macht nacheinander:
 
-1. `bash tools/build.sh --game-dir <GameDir> --deploy`: Build, API-Check gegen die Spiel-DLLs, Core-Tests, Deploy.
+1. `tools/build.sh --game-dir <GameDir> --deploy` in Git Bash: Build, API-Check gegen die Spiel-DLLs, Core-Tests, Deploy.
    Jede Warnung ist ein Buildfehler, ein roter Test bricht ab.
 2. Prüft, dass `Mods\SkylineTogetherDirect\SkylineTogether.dll` im Nutzerordner liegt.
 3. Legt die Firewall-Regel `SkylineTogetherDirect` an (TCP 27015, nur aus `100.64.0.0/10`, also Tailscale) und ersetzt
@@ -108,8 +114,8 @@ Adressen sind darin maskiert. Keine `.dmp`-Dateien weitergeben (können Passwör
 
 ## 8. Auswerten
 
-```bash
-grep -inE "refused proposal|divergence|repair|resync|timeout|ProtocolViolation" "$LOG"
+```powershell
+Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Colossal Order\Cities Skylines II\Logs\SkylineTogether.log" -Pattern 'refused proposal','divergence','repair','resync','timeout','ProtocolError'
 ```
 
 Dazu `DLC check skipped` (siehe oben) und beim ersten Start `P-DIRECT`. Auf den Host-Log zuerst schauen (er entscheidet),
@@ -118,6 +124,6 @@ dann den des Clients. Zu jedem Treffer die Uhrzeit mit dem Erlebten abgleichen.
 ## 9. Bugfix-Regel
 
 Jeder Fix bekommt, wo möglich, einen Core-Test (`tests/SkylineTogether.Core.Tests`, `[Test]`). Vor dem Commit
-`bash tools/build.sh --game-dir "D:\games\Cities Skylines II"` (Build + API-Check + Tests grün), Conventional Commit,
+`& "C:\Program Files\Git\bin\bash.exe" tools/build.sh --game-dir "D:\games\Cities Skylines II"` in PowerShell, oder `tools/build.sh ...` in Git Bash (nie ein nacktes `bash`: das ist unter Windows oft das WSL-`bash.exe`) (Build + API-Check + Tests grün), Conventional Commit,
 Push nach `origin/main`. Die Linux-Session zieht nach. Die CI-Untergrenze `--expect-at-least` in
 `.github/workflows/ci.yml` mit der Testanzahl anheben.

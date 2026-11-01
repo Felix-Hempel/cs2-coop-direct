@@ -10,14 +10,18 @@
   4. warns when the old mod (Paradox Mods ID 159499) is still subscribed
   5. prints the build id (first 12 hex digits of the SHA-256 of the DLL); both players must see the same one
 
-  powershell -ExecutionPolicy Bypass -File tools\deploy-windows.ps1 [-GameDir "D:\games\Cities Skylines II"] [-SkipFirewall]
+  powershell -ExecutionPolicy Bypass -File tools\deploy-windows.ps1 [-GameDir "D:\games\Cities Skylines II"] [-SkipFirewall] [-BashPath "C:\Program Files\Git\bin\bash.exe"]
 #>
 param(
     [string]$GameDir = 'D:\games\Cities Skylines II',
-    [switch]$SkipFirewall
+    [switch]$SkipFirewall,
+    [string]$BashPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+# a trailing backslash would swallow the closing quote of the native argument
+$GameDir = $GameDir.TrimEnd('\')
 
 $RuleName = 'SkylineTogetherDirect'
 $Port = 27015
@@ -57,8 +61,9 @@ Write-Step 'Build and deploy (tools/build.sh --deploy)'
 if (-not (Test-Path -LiteralPath (Join-Path $GameDir 'Cities2_Data\Managed\Game.dll'))) {
     throw ('Game.dll not found below "{0}": pass -GameDir with the install folder of Cities: Skylines II' -f $GameDir)
 }
-$bash = Find-GitBash
-if (-not $bash) { throw 'Git Bash not found (winget install Git.Git); a bash on the PATH may be WSL and is not used' }
+if ($BashPath) { $bash = $BashPath } else { $bash = Find-GitBash }
+if ($bash -and -not (Test-Path -LiteralPath $bash)) { throw ('bash not found: {0}' -f $bash) }
+if (-not $bash) { throw 'Git Bash not found (winget install Git.Git) or pass -BashPath; a bash on the PATH may be WSL and is not used' }
 Write-Host ('bash: {0}' -f $bash)
 
 Push-Location $RepoRoot
@@ -85,7 +90,8 @@ if ($SkipFirewall) {
         "-RemoteAddress 100.64.0.0/10 -Action Allow | Out-Null") -f $RuleName, $Port
     try {
         if (Test-Admin) {
-            Invoke-Expression $ruleCmd
+            Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+            New-NetFirewallRule -DisplayName $RuleName -Direction Inbound -Protocol TCP -LocalPort $Port -RemoteAddress '100.64.0.0/10' -Action Allow | Out-Null
         } else {
             Write-Host 'not elevated: a UAC prompt follows for this one step'
             $argLine = '-NoProfile -ExecutionPolicy Bypass -Command "{0}"' -f $ruleCmd
@@ -96,7 +102,15 @@ if ($SkipFirewall) {
     }
     $rule = Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue
     if ($rule) {
-        Write-Host ('ok: rule {0} exists (enabled: {1})' -f $RuleName, $rule.Enabled)
+        $portFilter = $rule | Get-NetFirewallPortFilter
+        $addrFilter = $rule | Get-NetFirewallAddressFilter
+        $portOk = (@($portFilter.LocalPort) -contains [string]$Port) -and ($portFilter.Protocol -eq 'TCP')
+        $addrOk = (@($addrFilter.RemoteAddress) -contains '100.64.0.0/10') -or (@($addrFilter.RemoteAddress) -contains '100.64.0.0-100.127.255.255')
+        if ($portOk -and $addrOk -and ([string]$rule.Enabled -eq 'True')) {
+            Write-Host ('ok: rule {0} exists (TCP {1} from 100.64.0.0/10, enabled)' -f $RuleName, $Port)
+        } else {
+            Write-Warning ('rule {0} is stale (port: {1}, remote: {2}, enabled: {3}); rerun this script as administrator' -f $RuleName, ($portFilter.LocalPort -join ','), ($addrFilter.RemoteAddress -join ','), $rule.Enabled)
+        }
     } else {
         Write-Warning ('rule {0} does not exist. Only the host needs it. Run this script again from an elevated PowerShell (or accept the UAC prompt).' -f $RuleName)
     }

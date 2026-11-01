@@ -4,10 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > **Fork: Skyline Together Direct.** Dieser Fork verbindet zwei Spieler direkt per `IP:Port` (TCP, Standardport 27015,
-> Passwort Pflicht), ohne Steam, gedacht für Tailscale. Der Direct-Modus (`DirectOnly`, Standard an) fasst keine
-> Steamworks-Funktion an. Mod-Ordner `SkylineTogetherDirect`, Protokoll 1009. Der alte Mod (Paradox Mods 159499) muss
-> deaktiviert sein. Bauen, Deployen und Testabend: [docs/WINDOWS-TEST.md](docs/WINDOWS-TEST.md). Der Rest dieser Datei
-> ist die Upstream-Beschreibung.
+> Passwort Pflicht), ohne Steam, gedacht für Tailscale. Der Direkt-Modus (`DirectOnly`, Standard an) fasst keine
+> Steamworks-Funktion an. Mod-Ordner `SkylineTogetherDirect`, Protokoll 1009. „Multiplayer Co-op“ (Paradox Mods 159499),
+> das Original „Skyline Together“ (Paradox Mods 163578) und ein lokaler Ordner `Mods\SkylineTogether` müssen
+> deaktiviert bzw. entfernt sein. Bauen, Deployen und Testabend: [docs/WINDOWS-TEST.md](docs/WINDOWS-TEST.md).
+> Der Rest dieser Datei ist die Upstream-Beschreibung.
 
 Co-op multiplayer for **Cities: Skylines II**: build one city together with friends over Steam.
 

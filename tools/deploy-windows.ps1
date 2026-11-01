@@ -7,7 +7,9 @@
   2. checks that SkylineTogether.dll arrived in Mods\SkylineTogetherDirect
   3. creates the inbound firewall rule for TCP 27015 from the Tailscale range (replaces a rule of the same name;
      one UAC prompt when this window is not elevated). Skip with -SkipFirewall.
-  4. warns when the old mod (Paradox Mods ID 159499) is still subscribed
+  4. warns when another co-op mod is installed: "Multiplayer Co-op" (Paradox Mods ID 159499), the original
+     "Skyline Together" (Paradox Mods ID 163578) or a local Mods\SkylineTogether folder; then reports enabled
+     firewall rules that block Cities2.exe (deletes nothing)
   5. prints the build id (first 12 hex digits of the SHA-256 of the DLL); both players must see the same one
 
   powershell -ExecutionPolicy Bypass -File tools\deploy-windows.ps1 [-GameDir "D:\games\Cities Skylines II"] [-SkipFirewall] [-BashPath "C:\Program Files\Git\bin\bash.exe"]
@@ -116,12 +118,50 @@ if ($SkipFirewall) {
     }
 }
 
-# ---------- 4. old mod ----------
-$oldMod = @(Get-ChildItem -Path (Join-Path $UserData '.cache\Mods\pdx_mods') -Filter '159499_*' -Directory -ErrorAction SilentlyContinue)
-if ($oldMod.Count -gt 0) {
-    Write-Host ''
-    Write-Warning ('The old Skyline Together (Paradox Mods ID 159499) is subscribed: {0}' -f $oldMod[0].FullName)
-    Write-Warning 'Disable it in the game under Paradox Mods or remove the subscription, then restart the game. Both mods at once will conflict.'
+# ---------- 4. other co-op mods ----------
+# The fork has the original's assembly name (SkylineTogether.dll) and settings file: only one of them may be loaded.
+Write-Step 'Check for other co-op mods'
+$conflicts = 0
+$pdxMods = Join-Path $UserData '.cache\Mods\pdx_mods'
+$coop = @(Get-ChildItem -Path $pdxMods -Filter '159499_*' -Directory -ErrorAction SilentlyContinue)
+if ($coop.Count -gt 0) {
+    $conflicts++
+    Write-Warning ('The old mod "Multiplayer Co-op" (Paradox Mods ID 159499) is subscribed: {0}' -f $coop[0].FullName)
+    Write-Warning 'Disable it in the game under Paradox Mods (or remove it from the playset), then restart the game.'
+}
+$original = @(Get-ChildItem -Path $pdxMods -Filter '163578_*' -Directory -ErrorAction SilentlyContinue)
+if ($original.Count -gt 0) {
+    $conflicts++
+    Write-Warning ('The original "Skyline Together" (Paradox Mods ID 163578) is subscribed: {0}' -f $original[0].FullName)
+    Write-Warning 'Unsubscribe or disable it in the game under Paradox Mods, then restart the game. It has the same assembly name and settings file as this fork.'
+}
+$localOriginal = Join-Path $UserData 'Mods\SkylineTogether'
+if (Test-Path -LiteralPath $localOriginal -PathType Container) {
+    $conflicts++
+    Write-Warning ('A local copy of the original "Skyline Together" is installed: {0}' -f $localOriginal)
+    Write-Warning 'Close the game, then delete or move that folder out of Mods. It has the same assembly name and settings file as this fork.'
+}
+if ($conflicts -eq 0) { Write-Host 'ok: neither Multiplayer Co-op (159499), the original Skyline Together (163578) nor Mods\SkylineTogether found' }
+
+# ---------- 4b. firewall block rules for the game ----------
+# A "Cancel" in the Windows firewall dialog for Cities2.exe leaves a block rule that beats the allow rule above.
+# Reported only; this script deletes nothing.
+Write-Step 'Check for firewall rules that block Cities2.exe'
+try {
+    $blockRules = @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue |
+        Where-Object { $_.Program -like '*Cities2.exe' } |
+        Get-NetFirewallRule -ErrorAction SilentlyContinue |
+        Where-Object { ([string]$_.Action -eq 'Block') -and ([string]$_.Enabled -eq 'True') })
+    if ($blockRules.Count -gt 0) {
+        foreach ($r in $blockRules) {
+            Write-Warning ('firewall rule "{0}" ({1}) blocks Cities2.exe' -f $r.DisplayName, $r.Direction)
+            Write-Warning ('  remove it in an elevated PowerShell: Remove-NetFirewallRule -Name ''{0}''  (or in "Windows Defender Firewall with Advanced Security")' -f $r.Name)
+        }
+    } else {
+        Write-Host 'ok: no enabled block rule for Cities2.exe'
+    }
+} catch {
+    Write-Warning ('could not read the firewall rules: {0}' -f $_.Exception.Message)
 }
 
 # ---------- 5. build id ----------

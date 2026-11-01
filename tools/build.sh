@@ -184,8 +184,9 @@ Fork of Skyline Together (https://github.com/ljkx/SkylineTogether); built for tw
 
 Install: extract this archive into
   %USERPROFILE%\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\Mods
-so that the files end up in Mods\\SkylineTogetherDirect, then start the game. Unsubscribe the original Skyline Together
-(Paradox Mods ID 159499) first: both mods must not be active at once.
+so that the files end up in Mods\\SkylineTogetherDirect, then start the game. First disable or remove every other
+co-op mod: "Multiplayer Co-op" (Paradox Mods ID 159499), the original "Skyline Together" (Paradox Mods ID 163578) and
+a local Mods\\SkylineTogether folder. This fork has the same assembly name and settings file, only one may be active.
 
 Every player needs the same build of the mod (the build ID in the panel), the same game version and the same DLCs.
 

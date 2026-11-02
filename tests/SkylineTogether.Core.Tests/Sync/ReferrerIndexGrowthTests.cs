@@ -27,6 +27,25 @@ namespace SkylineTogether.Core.Tests.Sync
         }
 
         [Test]
+        public void ReAddingAKnownPairBehindAPrunedHeadKeepsTheChainIntact()
+        {
+            // chain of target 1: 11 -> 10; 11 is gone, 10 is added again (the sweep re-indexes every holder)
+            var index = new AgentReferrerIndex<int>();
+            index.Add(1, 10);
+            index.Add(1, 11);
+            Assert.False(index.Add(1, 10, r => r != 11), "the pair is known");
+            // the node of 11 went back to the pool and is handed out again; target 1 must not still start at it
+            index.Add(2, 20);
+            var left = new List<int>();
+            Assert.Equal(1, index.Get(1, left));
+            Assert.Equal(10, left[0]);
+            Assert.False(index.Contains(1, 20), "target 1 shares no node with target 2");
+            Assert.Equal(2, index.Count);
+            Assert.Equal(1, index.RemoveTarget(1));
+            Assert.True(index.Contains(2, 20), "removing target 1 leaves target 2 alone");
+        }
+
+        [Test]
         public void TheSweepPrunesGoneReferrersAndTargetsInSlices()
         {
             var index = new AgentReferrerIndex<int>();

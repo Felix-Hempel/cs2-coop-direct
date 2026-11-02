@@ -83,7 +83,13 @@ namespace SkylineTogether.Core.Sync
                 {
                     int next = _next[node];
                     TEntity r = _referrer[node];
-                    if (_eq.Equals(r, referrer)) return false;
+                    if (_eq.Equals(r, referrer))
+                    {
+                        // the head may have been pruned on the way here: a head left on a released node would hand the
+                        // chain to whichever target gets that node next and could close it into a cycle (endless walks)
+                        _heads[target] = head;
+                        return false;
+                    }
                     if (alive != null && !alive(r))
                     {
                         if (previous < 0) head = next;

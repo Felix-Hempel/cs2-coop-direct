@@ -31,6 +31,11 @@ All notable changes to this project are documented in this file. The format is b
     other mod until it is checked again, and the log says why.
 - The speed shown in the Skyline Together panel can now be a fraction such as 0.5x.
 
+### Fixed
+
+- A joined player's game no longer freezes for good a few minutes after building roads. The list of which objects
+  point at which could get tangled after deletions, and walking it then never ended.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

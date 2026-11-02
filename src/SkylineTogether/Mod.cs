@@ -83,6 +83,9 @@ namespace SkylineTogether
             var log = new GameLog(Name);
             Log = log;
             log.Info(LogCategory.Session, "Skyline Together " + typeof(Mod).Assembly.GetName().Version + " loading");
+            log.Info(LogCategory.Diagnostics, log.RotationResult);
+            // a frozen main thread during a session is logged with the mod section it stood in (a background thread)
+            Step(log, "stall watch", () => HangWatch.Start(log));
             try
             {
                 log.Info(LogCategory.Session, "build " + Session.GameInfoProvider.BuildText + " (the installer shows the same id; players must match it)");
@@ -238,6 +241,7 @@ namespace SkylineTogether
         public void OnDispose()
         {
             Log?.Info(LogCategory.Session, "disposing");
+            HangWatch.Stop();
             ReferenceProbe.Stop();
             Replay?.Shutdown(); // solo testing: keep the recording, write the verdict
             try

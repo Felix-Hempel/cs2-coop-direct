@@ -40,6 +40,7 @@ namespace SkylineTogether.Sync
         protected override void OnUpdate()
         {
             if (!SyncController.SessionActive || !Diagnostics.Features.Movers.IsAvailable) return;
+            Diagnostics.HangWatch.Enter("mover capture");
             try
             {
                 MoverSync.Instance?.Host.Update();
@@ -47,6 +48,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Diagnostics.Guard.Report(Diagnostics.Features.Movers, "mover capture", ex);
+            }
+            finally
+            {
+                Diagnostics.HangWatch.Exit();
             }
         }
     }
@@ -72,6 +77,7 @@ namespace SkylineTogether.Sync
                 }
                 return;
             }
+            Diagnostics.HangWatch.Enter("mover apply");
             try
             {
                 MoverSync.Instance?.Client.Apply();
@@ -79,6 +85,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Diagnostics.Guard.Report(Diagnostics.Features.Movers, "mover apply", ex);
+            }
+            finally
+            {
+                Diagnostics.HangWatch.Exit();
             }
         }
     }
@@ -89,6 +99,7 @@ namespace SkylineTogether.Sync
         protected override void OnUpdate()
         {
             if (!SyncController.SessionActive || !Diagnostics.Features.Movers.IsAvailable) return;
+            Diagnostics.HangWatch.Enter("motion write");
             try
             {
                 MoverSync.Instance?.Client.Write();
@@ -96,6 +107,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Diagnostics.Guard.Report(Diagnostics.Features.Movers, "motion write", ex);
+            }
+            finally
+            {
+                Diagnostics.HangWatch.Exit();
             }
         }
     }

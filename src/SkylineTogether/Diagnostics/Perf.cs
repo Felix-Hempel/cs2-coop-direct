@@ -125,6 +125,7 @@ namespace SkylineTogether.Diagnostics
         {
             double ms = Elapsed(start);
             Counters.AddTime(component, ms);
+            HangWatch.Step(component);
             return ms;
         }
 

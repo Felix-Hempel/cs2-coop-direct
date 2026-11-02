@@ -11,11 +11,13 @@ namespace SkylineTogether.Sync
     /// </summary>
     internal static class DerivedLinkRun
     {
-        public static void Run(string where, Action<DerivedLinkGuard, EntityManager> body, EntityManager em)
+        // section: the stall watch's name of the system (a constant: no string is built per frame)
+        public static void Run(string where, string section, Action<DerivedLinkGuard, EntityManager> body, EntityManager em)
         {
             SyncController sync = Mod.Sync;
             if (sync == null || !SyncController.SessionActive || !(sync.IsHost || sync.IsLiveClient) || !Features.Replication.IsAvailable) return;
             long start = Perf.Start();
+            HangWatch.Enter(section);
             try
             {
                 body(sync.Links, em);
@@ -27,6 +29,7 @@ namespace SkylineTogether.Sync
             finally
             {
                 Perf.Stop(Perf.ReferenceRepair, start);
+                HangWatch.Exit();
             }
         }
     }
@@ -36,7 +39,7 @@ namespace SkylineTogether.Sync
     {
         private static readonly Action<DerivedLinkGuard, EntityManager> Body = (g, em) => g.BeforeNetReferences(em);
 
-        protected override void OnUpdate() => DerivedLinkRun.Run("node and edge lists", Body, EntityManager);
+        protected override void OnUpdate() => DerivedLinkRun.Run("node and edge lists", "derived links: node and edge lists", Body, EntityManager);
     }
 
     /// <summary>Modification2B, right before <c>Game.Net.AggregateSystem</c>: the streets it is about to index.</summary>
@@ -44,7 +47,7 @@ namespace SkylineTogether.Sync
     {
         private static readonly Action<DerivedLinkGuard, EntityManager> Body = (g, em) => g.BeforeAggregates(em);
 
-        protected override void OnUpdate() => DerivedLinkRun.Run("streets", Body, EntityManager);
+        protected override void OnUpdate() => DerivedLinkRun.Run("streets", "derived links: streets", Body, EntityManager);
     }
 
     /// <summary>Modification4B, right before <c>Game.Buildings.RoadConnectionSystem</c>: the road connections it is about to index.</summary>
@@ -52,7 +55,7 @@ namespace SkylineTogether.Sync
     {
         private static readonly Action<DerivedLinkGuard, EntityManager> Body = (g, em) => g.BeforeRoadConnections(em);
 
-        protected override void OnUpdate() => DerivedLinkRun.Run("road connections", Body, EntityManager);
+        protected override void OnUpdate() => DerivedLinkRun.Run("road connections", "derived links: road connections", Body, EntityManager);
     }
 
     /// <summary>PreCulling, right before <c>Game.Rendering.AggregateMeshSystem</c>: the street lists whose labels it rebuilds and their nodes' edge lists.</summary>
@@ -60,7 +63,7 @@ namespace SkylineTogether.Sync
     {
         private static readonly Action<DerivedLinkGuard, EntityManager> Body = (g, em) => g.BeforeAggregateMeshes(em);
 
-        protected override void OnUpdate() => DerivedLinkRun.Run("street labels", Body, EntityManager);
+        protected override void OnUpdate() => DerivedLinkRun.Run("street labels", "derived links: street labels", Body, EntityManager);
     }
 
     /// <summary>
@@ -71,6 +74,6 @@ namespace SkylineTogether.Sync
     {
         private static readonly Action<DerivedLinkGuard, EntityManager> Body = (g, em) => g.EndOfModification(em);
 
-        protected override void OnUpdate() => DerivedLinkRun.Run("end of modification", Body, EntityManager);
+        protected override void OnUpdate() => DerivedLinkRun.Run("end of modification", "derived links: end of modification", Body, EntityManager);
     }
 }

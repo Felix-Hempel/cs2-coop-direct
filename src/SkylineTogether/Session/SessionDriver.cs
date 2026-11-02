@@ -14,6 +14,11 @@ namespace SkylineTogether.Session
     {
         private void Update()
         {
+            // the stall watch's heartbeat: armed while hosting or live as a client (a joining client's city load stalls by
+            // design); a frozen frame is then logged with where it stood
+            Sync.SyncController sync = Mod.Sync;
+            HangWatch.Beat(Time.frameCount, sync != null && Sync.SyncController.SessionActive && (sync.IsHost || sync.IsLiveClient));
+            HangWatch.Enter("session tick");
             try
             {
                 Mod.Sessions?.Tick();
@@ -22,6 +27,10 @@ namespace SkylineTogether.Session
             catch (Exception ex)
             {
                 Guard.Report(Features.Session, "session driver", ex);
+            }
+            finally
+            {
+                HangWatch.Exit();
             }
             try
             {

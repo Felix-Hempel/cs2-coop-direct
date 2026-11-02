@@ -24,12 +24,26 @@ namespace SkylineTogether.Diagnostics
         private readonly Core.Diagnostics.LogFloodGuard _flood = new Core.Diagnostics.LogFloodGuard();
         private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
 
+        /// <summary>Logs of earlier runs kept next to this one (<see cref="Core.Diagnostics.LogRotation"/>).</summary>
+        public const int KeptRuns = 3;
+
         public GameLog(string name)
         {
             _log = LogManager.GetLogger(name).SetShowsErrorsInUI(false);
             // before the first line: the redactor also knows the exact 8.3 short form of the profile folder
             ShortPaths.Install();
+            // before the first line too: the game's logger opens the file at its first line and starts it anew, so a
+            // freeze that was followed by a restart would lose the log that says why
+            string path = LogPath;
+            string failed = Core.Diagnostics.LogRotation.Rotate(path, KeptRuns);
+            string file = path != null ? System.IO.Path.GetFileNameWithoutExtension(path) : name;
+            RotationResult = path == null ? "the log has no file path; the logs of earlier runs are not kept"
+                : failed == null ? "the logs of the last " + KeptRuns + " runs are kept as " + file + "-1.log (the last run) to " + file + "-" + KeptRuns + ".log"
+                : "could not keep the last run's log (" + failed + "); this run's log replaces it";
         }
+
+        /// <summary>What happened to the earlier runs' logs, for the first lines of this one.</summary>
+        public string RotationResult { get; }
 
         public CoreLevel Minimum { get; set; } = CoreLevel.Info;
 

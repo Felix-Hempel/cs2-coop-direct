@@ -1611,6 +1611,20 @@ kind never hides the others; after 64 MiB in one run only errors are written, up
 further 16 MiB, then nothing. The next line written is preceded by `N log line(s) left out`. Warnings caused by peer
 input are logged once per key.
 
+The game's logger starts the file anew with every game start, so before the first line the logs of the last three runs
+are moved to `SkylineTogether-1.log` (the last run) to `SkylineTogether-3.log`
+([`LogRotation`](../src/SkylineTogether.Core/Diagnostics/LogRotation.cs)): a game that froze and was restarted keeps the
+log that says why.
+
+**Stalls.** A frozen main thread (an endless loop, a deadlock, a job the frame waits on forever) leaves only a log that
+ends. While hosting or live as a client, [`HangWatch`](../src/SkylineTogether/Diagnostics/HangWatch.cs) (a background
+thread over [`StallWatch`](../src/SkylineTogether.Core/Diagnostics/StallWatch.cs)) writes `forensics` warnings after 10 s
+without a frame and again after 30, 60 and 120 s and every 120 s after: `main thread stalled: no frame for 10.4 s (last
+frame 54730); inside the mod's section 'apply' (entered 10.3 s before); last timed step 'agent apply' finished 10.2 s
+before`, or `outside the mod's code (the game's systems or a job the frame waits for); the mod's last section '...' was
+left ... before`. The mod's systems and the session tick mark their sections, `Perf.Stop` notes each timed step. A stall
+that ends is reported by the next frame (`main thread responding again after ...`).
+
 **Forensics.** A crash in a Burst job leaves no managed stack, so the last lines before it must say what just happened
 ([`Forensics`](../src/SkylineTogether/Diagnostics/Forensics.cs), category `forensics`, at most 20 lines a second with a
 summary of what was left out: [`BreadcrumbLimiter`](../src/SkylineTogether.Core/Diagnostics/ForensicsTrail.cs)):

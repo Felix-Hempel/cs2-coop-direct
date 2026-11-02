@@ -15,6 +15,7 @@ namespace SkylineTogether.Sync
         {
             if (!SyncController.SessionActive || !Diagnostics.Features.Integrity.IsAvailable) return;
             long start = Diagnostics.Perf.Start();
+            Diagnostics.HangWatch.Enter("icon authority filter");
             try
             {
                 Mod.Sync?.Integrity?.Icons.BeforeIconCommandSystem();
@@ -22,6 +23,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Diagnostics.Guard.Report(Diagnostics.Features.Integrity, "icon authority filter", ex);
+            }
+            finally
+            {
+                Diagnostics.HangWatch.Exit();
             }
             Diagnostics.Perf.Stop(Diagnostics.Perf.IconFilter, start);
         }

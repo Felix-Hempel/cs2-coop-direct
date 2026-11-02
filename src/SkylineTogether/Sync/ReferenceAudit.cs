@@ -171,6 +171,7 @@ namespace SkylineTogether.Sync
         private AgentLinkAccess _access;
         private AgentReferrerIndex<Entity> _index;
         private bool _indexBuilt;
+        private long _corruptResetsLogged;
         private Func<Entity, bool> _alive;
 
         /// <summary>Targets of the referrer index whose gone referrers are pruned per frame (a background lap).</summary>
@@ -221,7 +222,8 @@ namespace SkylineTogether.Sync
                    + _stats.Requested + " objects asked from the host, " + _missingRequests.Refused + " missing ids not asked again; removal clean-up of local deletions "
                    + DeletionCascade.LocalDeletions + ", " + DeletionCascade.HoldersDeleted + " citizens and pets deleted with their household, " + DeletionCascade.MoversDeleted
                    + " movers deleted with their owner; link elements naming nobody dropped on read " + AgentLinkAccess.WireNullsDropped
-                   + (_index != null ? "; referrer index " + _index.Count + " links to " + _index.Targets + " entities (" + _index.LargeTargets + " large, " + _index.Pruned + " pruned)" : "");
+                   + (_index != null ? "; referrer index " + _index.Count + " links to " + _index.Targets + " entities (" + _index.LargeTargets + " large, " + _index.Pruned + " pruned"
+                                       + (_index.CorruptResets > 0 ? ", " + _index.CorruptResets + " corrupt reset(s)" : "") + ")" : "");
         }
 
         private void Build(World world)
@@ -232,6 +234,7 @@ namespace SkylineTogether.Sync
             _access = new AgentLinkAccess(em);
             _index = new AgentReferrerIndex<Entity>(1 << 16);
             _indexBuilt = false;
+            _corruptResetsLogged = 0;
             DeletionCascade.Index = _index;
             _alive = e => _world != null && _world.EntityManager.Exists(e);
             _linkMasks.Clear();
@@ -489,6 +492,14 @@ namespace SkylineTogether.Sync
             }
             EntityManager em = _world.EntityManager;
             _access.EntityManager = em;
+            if (_index != null && _index.CorruptResets != _corruptResetsLogged)
+            {
+                // a walk found a cycle and the index cleared itself rather than spin (the freeze of issue #1): rebuild it
+                _corruptResetsLogged = _index.CorruptResets;
+                _indexBuilt = false;
+                _log.Warn(LogCategory.Integrity, "referrer index was corrupt (a chain ran in a cycle) and was cleared instead of freezing the game; rebuilding it (session: "
+                                                 + _corruptResetsLogged + " time(s))");
+            }
             if (_failed)
             {
                 // the sweep stopped; the targeted pass and the requests go on, and the referrer index is still pruned (it

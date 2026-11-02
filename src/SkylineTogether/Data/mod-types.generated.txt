@@ -47,6 +47,7 @@ SkylineTogether.Diagnostics.Features
 SkylineTogether.Diagnostics.Forensics
 SkylineTogether.Diagnostics.GameLog
 SkylineTogether.Diagnostics.Guard
+SkylineTogether.Diagnostics.HangWatch
 SkylineTogether.Diagnostics.InstallInfo
 SkylineTogether.Diagnostics.InstallInfo+InstalledCopy
 SkylineTogether.Diagnostics.Perf

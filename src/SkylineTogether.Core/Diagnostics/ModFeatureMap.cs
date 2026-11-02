@@ -55,6 +55,7 @@ namespace SkylineTogether.Core.Diagnostics
             ("SkylineTogether.Diagnostics.Features", F(Session)),
             ("SkylineTogether.Diagnostics.GameLog", F(Session)),
             ("SkylineTogether.Diagnostics.Guard", F(Session)),
+            ("SkylineTogether.Diagnostics.HangWatch", F(Session)), // the systems and Perf mark their sections through it
             ("SkylineTogether.Diagnostics.Perf", F(Session)),
             ("SkylineTogether.Diagnostics.Probes", F(Session)),
             ("SkylineTogether.Diagnostics.ReferenceProbe", F(Session)),

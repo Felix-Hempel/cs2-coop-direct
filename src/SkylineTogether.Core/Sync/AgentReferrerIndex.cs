@@ -61,6 +61,21 @@ namespace SkylineTogether.Core.Sync
         public long Pruned { get; private set; }
 
         /// <summary>
+        /// Times a chain was found longer than the node pool (a cycle: the index was corrupt) and the index was cleared
+        /// instead of walking forever. Kept across <see cref="Clear"/>; the owner logs it and rebuilds the index.
+        /// </summary>
+        public long CorruptResets { get; private set; }
+
+        /// <summary>True once a walk took more steps than there are nodes: only a cycle does that.</summary>
+        private bool Overrun(ref int steps) => ++steps > _used;
+
+        private void ResetCorrupt()
+        {
+            CorruptResets++;
+            Clear();
+        }
+
+        /// <summary>
         /// Notes that <paramref name="referrer"/> may hold a reference naming <paramref name="target"/> (a pair already held
         /// is not added twice). Referrers of the same target for which <paramref name="alive"/> is false are removed in
         /// passing (in a large chain once it has doubled since the last prune). Returns true when the pair was new.
@@ -78,9 +93,15 @@ namespace SkylineTogether.Core.Sync
             int length = 0;
             if (_heads.TryGetValue(target, out int head))
             {
-                int previous = -1;
+                int previous = -1, steps = 0;
                 for (int node = head; node >= 0;)
                 {
+                    if (Overrun(ref steps))
+                    {
+                        ResetCorrupt();
+                        Push(target, referrer);
+                        return true;
+                    }
                     int next = _next[node];
                     TEntity r = _referrer[node];
                     if (_eq.Equals(r, referrer))
@@ -117,9 +138,15 @@ namespace SkylineTogether.Core.Sync
         {
             if (output == null) throw new ArgumentNullException(nameof(output));
             if (!_heads.TryGetValue(target, out int node)) return 0;
-            int n = 0;
+            int n = 0, steps = 0;
             for (; node >= 0; node = _next[node])
             {
+                if (Overrun(ref steps))
+                {
+                    output.RemoveRange(output.Count - n, n);
+                    ResetCorrupt();
+                    return 0;
+                }
                 output.Add(_referrer[node]);
                 n++;
             }
@@ -131,8 +158,14 @@ namespace SkylineTogether.Core.Sync
         {
             if (_large.TryGetValue(target, out Large large)) return large.Members.Contains(referrer);
             if (!_heads.TryGetValue(target, out int node)) return false;
+            int steps = 0;
             for (; node >= 0; node = _next[node])
             {
+                if (Overrun(ref steps))
+                {
+                    ResetCorrupt();
+                    return false;
+                }
                 if (_eq.Equals(_referrer[node], referrer)) return true;
             }
             return false;
@@ -142,9 +175,14 @@ namespace SkylineTogether.Core.Sync
         public bool Remove(TEntity target, TEntity referrer)
         {
             if (!_heads.TryGetValue(target, out int head)) return false;
-            int previous = -1;
+            int previous = -1, steps = 0;
             for (int node = head; node >= 0; node = _next[node])
             {
+                if (Overrun(ref steps))
+                {
+                    ResetCorrupt();
+                    return false;
+                }
                 if (!_eq.Equals(_referrer[node], referrer))
                 {
                     previous = node;
@@ -197,9 +235,14 @@ namespace SkylineTogether.Core.Sync
                     removed += RemoveTarget(target);
                     continue;
                 }
-                int previous = -1;
+                int previous = -1, steps = 0;
                 for (int node = head; node >= 0;)
                 {
+                    if (Overrun(ref steps))
+                    {
+                        ResetCorrupt(); // also restarts the sweep's lap
+                        return removed;
+                    }
                     int next = _next[node];
                     TEntity r = _referrer[node];
                     if (!alive(r))
@@ -236,9 +279,14 @@ namespace SkylineTogether.Core.Sync
             _large.Remove(target);
             if (!_heads.TryGetValue(target, out int node)) return 0;
             _heads.Remove(target);
-            int n = 0;
+            int n = 0, steps = 0;
             while (node >= 0)
             {
+                if (Overrun(ref steps))
+                {
+                    ResetCorrupt();
+                    return n;
+                }
                 int next = _next[node];
                 Release(node);
                 n++;
@@ -273,7 +321,16 @@ namespace SkylineTogether.Core.Sync
         private void MakeLarge(TEntity target)
         {
             var large = new Large();
-            for (int node = _heads[target]; node >= 0; node = _next[node]) large.Members.Add(_referrer[node]);
+            int steps = 0;
+            for (int node = _heads[target]; node >= 0; node = _next[node])
+            {
+                if (Overrun(ref steps))
+                {
+                    ResetCorrupt();
+                    return;
+                }
+                large.Members.Add(_referrer[node]);
+            }
             large.PrunedAt = large.Members.Count;
             _large[target] = large;
         }
@@ -281,9 +338,14 @@ namespace SkylineTogether.Core.Sync
         private void PruneLarge(TEntity target, Large large, Func<TEntity, bool> alive)
         {
             int head = _heads[target];
-            int previous = -1;
+            int previous = -1, steps = 0;
             for (int node = head; node >= 0;)
             {
+                if (Overrun(ref steps))
+                {
+                    ResetCorrupt();
+                    return;
+                }
                 int next = _next[node];
                 TEntity r = _referrer[node];
                 if (!alive(r))

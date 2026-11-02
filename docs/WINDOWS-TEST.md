@@ -135,6 +135,8 @@ Im Panel „Write diagnostics“ klicken, dann aus
 `C:\Users\felix\AppData\LocalLow\Colossal Order\Cities Skylines II\Logs\`:
 
 - `SkylineTogether.log`
+- `SkylineTogether-1.log` bis `-3.log` (die Logs der letzten drei Spielstarts; nach einem Hänger und Neustart steht der
+  Hänger in `-1.log`)
 - `SkylineTogether-diagnostics-*.txt`
 
 Adressen sind darin maskiert. Keine `.dmp`-Dateien weitergeben (können Passwörter enthalten).
@@ -142,8 +144,12 @@ Adressen sind darin maskiert. Keine `.dmp`-Dateien weitergeben (können Passwör
 ## 8. Auswerten
 
 ```powershell
-Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Colossal Order\Cities Skylines II\Logs\SkylineTogether.log" -Pattern 'refused proposal','divergence','repair','resync','timeout','ProtocolError'
+Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Colossal Order\Cities Skylines II\Logs\SkylineTogether.log" -Pattern 'refused proposal','divergence','repair','resync','timeout','ProtocolError','stalled','responding again','corrupt'
 ```
+
+Bei einem Hänger schreibt die Mod nach 10 s ohne Frame `main thread stalled: …` mit dem Abschnitt, in dem es stand
+(`inside the mod's section '…'` oder `outside the mod's code`). Das Spiel dann nicht sofort abschießen, sondern 30 s
+warten, damit die zweite Meldung auch im Log landet.
 
 Dazu `DLC check skipped` (siehe oben) und beim ersten Start `P-DIRECT`. Auf den Host-Log zuerst schauen (er entscheidet),
 dann den des Clients. Zu jedem Treffer die Uhrzeit mit dem Erlebten abgleichen.

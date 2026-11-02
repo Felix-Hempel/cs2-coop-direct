@@ -17,6 +17,7 @@ namespace SkylineTogether.Sync
         {
             SyncController sync = Mod.Sync;
             if (sync == null || !SyncController.SessionActive) return;
+            HangWatch.Enter("apply");
             try
             {
                 sync.ApplyIncoming();
@@ -24,6 +25,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Guard.Report(Features.Replication, "apply", ex);
+            }
+            finally
+            {
+                HangWatch.Exit();
             }
         }
     }
@@ -38,6 +43,7 @@ namespace SkylineTogether.Sync
         {
             SyncController sync = Mod.Sync;
             if (sync == null || !SyncController.SessionActive) return;
+            HangWatch.Enter("capture");
             try
             {
                 sync.CaptureOutgoing(UnityEngine.Time.realtimeSinceStartupAsDouble);
@@ -45,6 +51,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Guard.Report(Features.Replication, "capture", ex);
+            }
+            finally
+            {
+                HangWatch.Exit();
             }
             // solo testing: the recorder's checkpoints (host) and the replay's icon comparison (client), after the capture
             Replay.ReplayController.Instance?.OnCaptureEnd();
@@ -101,6 +111,7 @@ namespace SkylineTogether.Sync
         {
             SyncController sync = Mod.Sync;
             if (sync == null || !SyncController.SessionActive) return;
+            HangWatch.Enter("tool hook");
             try
             {
                 sync.OnToolApply();
@@ -108,6 +119,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Guard.Report(Features.Replication, "tool hook", ex);
+            }
+            finally
+            {
+                HangWatch.Exit();
             }
         }
     }
@@ -165,6 +180,7 @@ namespace SkylineTogether.Sync
                 return;
             }
             long start = Perf.Start();
+            HangWatch.Enter("removal cascade");
             NativeArray<Entity> entities = _deleted.ToEntityArray(Allocator.Temp);
             try
             {
@@ -213,6 +229,7 @@ namespace SkylineTogether.Sync
                 entities.Dispose();
                 DeletionCascade.DoneThisFrame.Clear();
                 Perf.Stop(Perf.ReferenceRepair, start);
+                HangWatch.Exit();
             }
         }
 
@@ -289,6 +306,7 @@ namespace SkylineTogether.Sync
                 _sessionWorld = World;
                 _logged.Clear();
             }
+            HangWatch.Enter("update-group guard");
             try
             {
                 sync.GuardUnsupported(EntityManager, _unsupported, _logged);
@@ -296,6 +314,10 @@ namespace SkylineTogether.Sync
             catch (Exception ex)
             {
                 Guard.Report(Features.Replication, "update-group guard", ex);
+            }
+            finally
+            {
+                HangWatch.Exit();
             }
         }
     }

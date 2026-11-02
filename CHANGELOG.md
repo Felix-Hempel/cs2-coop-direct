@@ -34,7 +34,15 @@ All notable changes to this project are documented in this file. The format is b
 ### Fixed
 
 - A joined player's game no longer freezes for good a few minutes after building roads. The list of which objects
-  point at which could get tangled after deletions, and walking it then never ended.
+  point at which could get tangled after deletions, and walking it then never ended. Should it ever get tangled again,
+  it is now cleared and rebuilt, with a warning in the log, instead of freezing the game.
+
+### Changed
+
+- When the game stops responding for 10 seconds during a session, the log now says so and names the part of Skyline
+  Together it stood in, or that it stood in the game's own code. It says again when the game responds again.
+- The logs of the last three game starts are kept as `SkylineTogether-1.log` to `SkylineTogether-3.log`, so a freeze
+  followed by a restart no longer loses the log that says why.
 
 ## [0.3.0] - 2026-10-24
 

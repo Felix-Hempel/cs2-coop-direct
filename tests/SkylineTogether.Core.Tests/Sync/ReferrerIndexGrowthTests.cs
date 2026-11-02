@@ -46,6 +46,39 @@ namespace SkylineTogether.Core.Tests.Sync
         }
 
         [Test]
+        public void ACycleClearsTheIndexInsteadOfWalkingForever()
+        {
+            var next = typeof(AgentReferrerIndex<int>).GetField("_next", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            AgentReferrerIndex<int> Cyclic()
+            {
+                var index = new AgentReferrerIndex<int>();
+                index.Add(1, 10); // node 0
+                index.Add(1, 11); // node 1 -> node 0
+                ((int[])next.GetValue(index))[0] = 1; // node 0 -> node 1: a cycle
+                return index;
+            }
+            var a = Cyclic();
+            Assert.False(a.Contains(1, 99));
+            Assert.Equal(1L, a.CorruptResets);
+            Assert.Equal(0, a.Count, "cleared");
+            var b = Cyclic();
+            var output = new List<int>();
+            Assert.Equal(0, b.Get(1, output));
+            Assert.Equal(0, output.Count, "nothing half-walked is handed out");
+            Assert.Equal(1L, b.CorruptResets);
+            var c = Cyclic();
+            c.RemoveTarget(1);
+            Assert.Equal(1L, c.CorruptResets);
+            var d = Cyclic();
+            Assert.True(d.Add(1, 12, r => true), "added to the cleared index");
+            Assert.True(d.Contains(1, 12));
+            var e = Cyclic();
+            e.Sweep(r => true, 10);
+            Assert.Equal(1L, e.CorruptResets);
+            Assert.False(e.Remove(1, 99));
+        }
+
+        [Test]
         public void TheSweepPrunesGoneReferrersAndTargetsInSlices()
         {
             var index = new AgentReferrerIndex<int>();
